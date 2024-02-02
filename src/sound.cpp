@@ -65,7 +65,7 @@ void SoundFile::addSwing(const double bpm, double offset) {
     while (tracker_l < length) {
         // Get frame counter
         left_frame = tracker_l * _sndinfo.samplerate;
-        right_frame = (tracker_l + beat_length) * (double) _sndinfo.samplerate;
+        right_frame = (tracker_l + beat_length) * (double)_sndinfo.samplerate;
 
         swingFrames(left_frame, right_frame);
 
@@ -74,8 +74,29 @@ void SoundFile::addSwing(const double bpm, double offset) {
     }
 }
 
+void SoundFile::exportToFile(const std::string filename) const {
+    if (!this->isValid()) {
+        std::cerr << "Attempting to write invalid file. Skipping..."
+                  << std::endl;
+        return;
+    } else if (_samples.size() % _sndinfo.channels != 0 ||
+               _samples.size() / _sndinfo.channels != _sndinfo.frames) {
+        std::cerr << "Mismatch between number of samples and channel count. "
+                     "Unable to write file. Skipping..."
+                  << std::endl;
+        return;
+    }
+
+    // Remove const binding from const function
+    SF_INFO info = _sndinfo;
+    SNDFILE* snd = sf_open(filename.c_str(), SFM_WRITE, &info);
+
+    sf_write_double(snd, _samples.data(), _samples.size());
+    sf_close(snd);
+}
+
 inline double SoundFile::getSoundLength() const {
-    return (double) _sndinfo.frames / _sndinfo.samplerate;
+    return (double)_sndinfo.frames / _sndinfo.samplerate;
 }
 
 void SoundFile::swingFrames(const uint32_t leftFrame,

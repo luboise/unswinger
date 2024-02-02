@@ -35,7 +35,8 @@ int main(int argc, char* argv[]) {
     }
 
     SoundFile file(filepath);
-    file.addSwing(songBPM, offset);
+    //file.addSwing(songBPM, offset);
+    file.exportToFile("out.flac");
 
     return EXIT_SUCCESS;
 }

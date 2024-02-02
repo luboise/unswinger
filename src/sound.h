@@ -10,6 +10,7 @@ class SoundFile {
     ~SoundFile();
 
     void addSwing(const double bpm, double offset);
+    void exportToFile(const std::string filename) const;
 
     inline bool isValid() const;
     inline double getSoundLength() const;
