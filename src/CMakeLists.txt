@@ -1,0 +1,1 @@
+target_sources(MusicUnswinger PRIVATE main.cpp)
