@@ -4,6 +4,8 @@
 
 #include <filesystem>
 
+#define SWING_RATIO (2.0 / 3.0)
+
 namespace fs = std::filesystem;
 
 SoundFile::SoundFile(const std::string& filepath) {
@@ -125,11 +127,11 @@ void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
 
             // Normalised pos
             double transposed_pos;
-            if (pos <= 0.5) {
-                transposed_pos = pos * 3.0 / 4.0;
+            if (pos <= SWING_RATIO) {
+                transposed_pos = pos / SWING_RATIO * 0.5;
             } else {
-                transposed_pos = ((3.0 * pos) - 1.0) / 2.0;
-                // transposed_pos = 2 * (pos - 0.5) / 3 + 0.5;
+                transposed_pos = (pos - SWING_RATIO) / (2 * (1 - SWING_RATIO));
+                transposed_pos += 0.5;
             }
 
             // suppose relevantframe = 3.4, then we want 60% of 3 and 40% of 4
@@ -151,7 +153,7 @@ void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
             double val = (weight_l * _samples[lsampleindex]) +
                          (weight_r * _samples[rsampleindex]);
 
-            auto test = (pos * frame_count) * _sndinfo.channels + current_channel;
+            auto test = frame_index * _sndinfo.channels + current_channel;
             splice[test] = val;
         }
     }
