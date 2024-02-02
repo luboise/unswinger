@@ -116,34 +116,32 @@ void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
             splice[i] = 0;
         }
     }
-    // splice[0] = _samples[0];
-    // splice[1] = _samples[1];
-    // splice[sample_count - 1] = _samples[sample_count - 1];
-    // splice[sample_count - 2] = _samples[sample_count - 2];
 
     for (size_t current_channel = 0; current_channel < _sndinfo.channels;
          current_channel++) {
         for (size_t frame_index = 1; frame_index < frame_count - 1;
              frame_index++) {
-            double pos = (float)frame_index / (frame_count - 1);
+            double pos = (double)frame_index / (double)(frame_count - 1);
 
             // Normalised pos
             double transposed_pos;
             if (pos <= 0.5) {
-                transposed_pos = pos * 3.0 / 4;
+                transposed_pos = pos * 3.0 / 4.0;
             } else {
-                transposed_pos = ((3 * pos) - 1) / 2;
+                transposed_pos = ((3.0 * pos) - 1.0) / 2.0;
+                // transposed_pos = 2 * (pos - 0.5) / 3 + 0.5;
             }
 
             // suppose relevantframe = 3.4, then we want 60% of 3 and 40% of 4
             double weight_r = fmod(transposed_pos, 1.0);
             double weight_l = 1 - weight_r;
 
-            int16_t localFrame = transposed_pos * frame_count;
-            int16_t localSample = localFrame * 2 + current_channel;
+            int64_t localFrame = transposed_pos * frame_count;
+            int64_t localSample =
+                localFrame * _sndinfo.channels + current_channel;
 
-            auto lsampleindex = leftSample + localSample;
-            auto rsampleindex = lsampleindex + _sndinfo.channels;
+            int64_t lsampleindex = leftSample + localSample;
+            int64_t rsampleindex = lsampleindex + _sndinfo.channels;
 
             if (lsampleindex < 0 || lsampleindex >= global_sample_count ||
                 rsampleindex >= global_sample_count) {
@@ -153,7 +151,8 @@ void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
             double val = (weight_l * _samples[lsampleindex]) +
                          (weight_r * _samples[rsampleindex]);
 
-            splice[localSample] = val;
+            auto test = (pos * frame_count) * _sndinfo.channels + current_channel;
+            splice[test] = val;
         }
     }
 
