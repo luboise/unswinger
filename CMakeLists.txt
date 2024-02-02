@@ -10,12 +10,12 @@ project(MusicUnswingerProject)
 
 add_executable(MusicUnswinger)
 
-# Libsndfile
-add_compile_definitions(ENABLE_EXTERNAL_LIBS ENABLE_MPEG)
-add_subdirectory(ext/libsndfile)
+# libsndfile
+find_package(SndFile REQUIRED)
+include_directories(${SNDFILE_INCLUDE_DIRS})
 
 target_link_libraries(MusicUnswinger
-	PUBLIC	libsndfile
+	PUBLIC	${SNDFILE_LIBRARIES}
 )
 
 add_subdirectory(src)

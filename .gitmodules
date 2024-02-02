@@ -1,3 +1,0 @@
-[submodule "ext\\libsndfile"]
-	path = ext\\libsndfile
-	url = https://github.com/libsndfile/libsndfile.git
