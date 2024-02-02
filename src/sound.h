@@ -19,5 +19,5 @@ class SoundFile {
     std::vector<double> _samples;
     SF_INFO _sndinfo;
 
-    void swingFrames(const uint32_t leftFrame, const uint32_t rightFrame);
+    void swingFrames(const int32_t leftFrame, const int32_t rightFrame);
 };
