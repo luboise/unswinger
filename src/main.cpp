@@ -35,7 +35,9 @@ int main(int argc, char* argv[]) {
     }
 
     SoundFile file(filepath);
-    file.addSwing(songBPM, offset);
+    // file.addSwing(songBPM, offset);
+    auto stretched_samples = file.getStretched(3.0 / 4.0);
+    file.setSamples(stretched_samples);
     file.exportToFile("out.flac");
 
     return EXIT_SUCCESS;

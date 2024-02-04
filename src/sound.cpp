@@ -100,6 +100,61 @@ inline double SoundFile::getSoundLength() const {
     return (double)_sndinfo.frames / _sndinfo.samplerate;
 }
 
+std::vector<double> SoundFile::getStretched(double stretchFactor) const {
+    return getStretched(stretchFactor, 0, _sndinfo.frames - 1);
+}
+
+std::vector<double> SoundFile::getStretched(double stretchFactor,
+                                            int32_t startFrame,
+                                            int32_t endFrame) const {
+    const int32_t startSample = startFrame * _sndinfo.channels;
+
+    const int32_t frame_count = endFrame - startFrame;
+    const int32_t sample_count = frame_count * _sndinfo.channels;
+
+    int32_t out_frames = floor(frame_count / stretchFactor);
+
+    std::vector<double> stretched(out_frames * _sndinfo.channels);
+
+    uint32_t current_sample = 0;
+    for (int frame = 0; frame < out_frames; frame++) {
+        // pos is [0.0, 1.0]
+        double pos = (double)frame / (frame_count - 1);
+
+        // Get the frame offset that we want the real value from
+        double offset = pos * frame_count * stretchFactor;
+
+        double weight_r = fmod(offset, 1.0);
+        double weight_l = 1 - weight_r;
+
+        int32_t wanted_frame = (startFrame + (uint32_t)offset);
+        auto left_frame = this->getFrame(wanted_frame);
+        auto right_frame = this->getFrame(wanted_frame + 1);
+
+        for (size_t i = 0; i < _sndinfo.channels; i++) {
+            stretched[current_sample++] =
+                weight_l * left_frame[i] + weight_r * right_frame[i];
+        }
+    }
+
+    return stretched;
+}
+
+std::vector<double> SoundFile::getFrame(const int32_t frameIndex) const {
+    std::vector<double> frame(_sndinfo.channels);
+
+    auto startSample = frameIndex * _sndinfo.channels;
+    for (size_t i = 0; i < _sndinfo.channels; i++) {
+        frame[i] = _samples[startSample + i];
+    }
+
+    return frame;
+}
+void SoundFile::setSamples(const std::vector<double> samples) {
+    this->_samples = samples;
+    this->_sndinfo.frames = ceilf((double)samples.size() / _sndinfo.channels);
+};
+
 void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
     const size_t frame_count = rightFrame - leftFrame;
     const size_t sample_count = frame_count * _sndinfo.channels;
