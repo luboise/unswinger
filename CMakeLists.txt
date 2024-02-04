@@ -14,6 +14,11 @@ add_executable(MusicUnswinger)
 find_package(SndFile REQUIRED)
 include_directories(${SNDFILE_INCLUDE_DIRS})
 
+target_link_directories(MusicUnswinger PRIVATE ext/FFTW)
+target_include_directories(MusicUnswinger PRIVATE ext/FFTW)
+
+target_link_libraries(MusicUnswinger PRIVATE libfftw3-3.lib)
+
 target_link_libraries(MusicUnswinger
 	PUBLIC	${SNDFILE_LIBRARIES}
 )

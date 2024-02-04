@@ -132,8 +132,9 @@ std::vector<double> SoundFile::getStretched(double stretchFactor,
         auto right_frame = this->getFrame(wanted_frame + 1);
 
         for (size_t i = 0; i < _sndinfo.channels; i++) {
-            stretched[current_sample++] =
+            double interpolated_val =
                 weight_l * left_frame[i] + weight_r * right_frame[i];
+            stretched[current_sample++] = interpolated_val;
         }
     }
 
@@ -153,6 +154,47 @@ std::vector<double> SoundFile::getFrame(const int32_t frameIndex) const {
 void SoundFile::setSamples(const std::vector<double> samples) {
     this->_samples = samples;
     this->_sndinfo.frames = ceilf((double)samples.size() / _sndinfo.channels);
+}
+void SoundFile::setChannel(const size_t channel, const size_t offset,
+                           const std::vector<double> samples) {
+    size_t index;
+    for (size_t i = 0; i < samples.size(); i++) {
+        index = (offset + i) * _sndinfo.channels + channel;
+        _samples[index] = samples[i];
+    }
+}
+
+std::vector<double> SoundFile::getSamples() const { return this->_samples; }
+
+std::vector<double> SoundFile::getChannel(uint8_t channel) const {
+    std::vector<double> channel_data(_sndinfo.frames);
+    for (size_t i = 0; i < _sndinfo.frames; i++) {
+        channel_data[i] = _samples[i * _sndinfo.channels + channel];
+    }
+
+    return channel_data;
+}
+void SoundFile::addSwingFourier(const double bpm, double offset){
+    auto channel1 = this->getChannel(0);
+    channel1.resize(2646000 / 6);
+    auto channel3 = channel1;
+    auto channel2 = this->getChannel(1);
+
+    // Create FFTW plan for each channel
+    fftw_complex* fftOutput = fftw_alloc_complex(channel1.size());
+    fftw_plan plan = fftw_plan_dft_r2c_1d(channel1.size(), channel1.data(),
+                                          fftOutput, FFTW_ESTIMATE);
+    fftw_execute(plan);
+    fftw_destroy_plan(plan);
+
+    // Create FFTW plan for each channel
+    plan = fftw_plan_dft_c2r_1d(channel3.size(), fftOutput, channel3.data(),
+                                FFTW_PRESERVE_INPUT);
+    fftw_execute(plan);
+    fftw_destroy_plan(plan);
+
+    this->setChannel(0, 0, channel1);
+    this->setChannel(1, 0, channel1);
 };
 
 void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {

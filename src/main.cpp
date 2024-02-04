@@ -3,6 +3,8 @@
 
 #include <sound.h>
 
+#include <fftw3.h>
+
 // ./unswinger filepath bpm offset
 #define NUM_USER_ARGS 3
 
@@ -35,9 +37,9 @@ int main(int argc, char* argv[]) {
     }
 
     SoundFile file(filepath);
-    // file.addSwing(songBPM, offset);
-    auto stretched_samples = file.getStretched(3.0 / 4.0);
-    file.setSamples(stretched_samples);
+
+    file.addSwingFourier(songBPM, offset);
+
     file.exportToFile("out.flac");
 
     return EXIT_SUCCESS;
