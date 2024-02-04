@@ -1,8 +1,8 @@
 #include "sound.h"
 
-#include <iostream>
-
+#include <complex>
 #include <filesystem>
+#include <iostream>
 
 #define SWING_RATIO (2.0 / 3.0)
 
@@ -174,24 +174,38 @@ std::vector<double> SoundFile::getChannel(uint8_t channel) const {
 
     return channel_data;
 }
-void SoundFile::addSwingFourier(const double bpm, double offset){
+void SoundFile::addSwingFourier(const double bpm, double offset) {
     auto channel1 = this->getChannel(0);
-    channel1.resize(2646000 / 6);
+     channel1.resize(2646000 / 12);
     auto channel3 = channel1;
-    auto channel2 = this->getChannel(1);
+    //std::vector<std::complex<double>> complexInput(channel1.size());
+    //for (size_t i = 0; i < channel1.size(); ++i) {
+    //    complexInput[i] = std::complex<double>(channel1[i], 0.0);
+    //}
+
+    std::vector<std::complex<double>> complexData(channel1.size());
 
     // Create FFTW plan for each channel
-    fftw_complex* fftOutput = fftw_alloc_complex(channel1.size());
-    fftw_plan plan = fftw_plan_dft_r2c_1d(channel1.size(), channel1.data(),
-                                          fftOutput, FFTW_ESTIMATE);
+    fftw_plan plan =
+        fftw_plan_dft_r2c_1d(complexData.size(),
+                         channel3.data(),
+                         reinterpret_cast<fftw_complex*>(complexData.data()),
+                         FFTW_ESTIMATE);
     fftw_execute(plan);
-    fftw_destroy_plan(plan);
 
     // Create FFTW plan for each channel
-    plan = fftw_plan_dft_c2r_1d(channel3.size(), fftOutput, channel3.data(),
-                                FFTW_PRESERVE_INPUT);
-    fftw_execute(plan);
+    fftw_plan c2r_plan = fftw_plan_dft_c2r_1d(
+        complexData.size(),
+        reinterpret_cast<fftw_complex*>(complexData.data()), channel1.data(),
+        FFTW_ESTIMATE);
+    fftw_execute(c2r_plan);
+
     fftw_destroy_plan(plan);
+    fftw_destroy_plan(c2r_plan);
+
+    for (auto& value : channel1) {
+        value /= channel1.size();
+    }
 
     this->setChannel(0, 0, channel1);
     this->setChannel(1, 0, channel1);
