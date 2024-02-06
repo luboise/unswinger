@@ -25,22 +25,27 @@ class SoundFile {
 
     SampleList getStretched(double stretchFactor) const;
     SampleList getStretched(double stretchFactor, int32_t startFrame,
-                                     int32_t endFrame) const;
+                            int32_t endFrame) const;
     std::vector<SampleType> getFrame(const int32_t frameIndex) const;
     SampleList getSamples() const;
     SampleList getChannel(uint8_t channel) const;
 
     SampleList getPitched(const std::vector<double>& channelData,
-                                   const double semitones) const;
-    void changePitch(SampleList& inplaceData,
-                                 const double& semitones) const;
+                          const double semitones) const;
 
     void setSamples(const std::vector<double> frames);
-    void setChannel(const size_t channel, const size_t offset, const std::vector<double> samples);
+    void setChannel(const size_t channel, const size_t offset,
+                    const std::vector<double> samples);
 
    private:
     SampleList _samples;
     SF_INFO _sndinfo;
 
     void swingFrames(const int32_t leftFrame, const int32_t rightFrame);
+    void makeSwung(SampleList& samples, uint32_t leftFrame,
+                   uint32_t rightFrame) const;
+
+    void changePitch(SampleList& inplaceData, const double& semitones) const;
+    void changePitch(SampleList& inplaceData, const double& semitones,
+                     const size_t startOffset, const size_t endOffset) const;
 };

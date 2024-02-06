@@ -195,8 +195,24 @@ SampleList SoundFile::getPitched(const SampleList& channelData,
 
 void SoundFile::changePitch(SampleList& inplaceData,
                             const double& semitones) const {
-    SampleList channelBackup = inplaceData;
-    std::vector<std::complex<SampleType>> complexData(inplaceData.size());
+    return changePitch(inplaceData, semitones, 0, inplaceData.size() - 1);
+}
+
+void SoundFile::changePitch(SampleList& inplaceData, const double& semitones,
+                            const size_t startOffset,
+                            const size_t endOffset) const {
+    if (startOffset > endOffset) {
+        throw std::range_error("Start offset is after end offset.");
+    }
+
+    if (startOffset >= inplaceData.size() || endOffset >= inplaceData.size()) {
+        throw std::domain_error("Offsets are out of range of sample list.");
+    }
+
+    SampleList channelBackup(inplaceData.begin() + 1 + startOffset,
+                             inplaceData.begin() + 1 + endOffset);
+
+    std::vector<std::complex<SampleType>> complexData(channelBackup.size());
 
     fftw_plan plan = fftw_plan_dft_r2c_1d(
         complexData.size(), channelBackup.data(),
@@ -206,7 +222,7 @@ void SoundFile::changePitch(SampleList& inplaceData,
     double binSize = (double)_sndinfo.samplerate / channelBackup.size();
 
     // New array to copy into
-    std::vector<std::complex<double>> complexData2(complexData.size());
+    std::vector<std::complex<double>> complexModifiedData(complexData.size());
 
     // Multiplier = a 12th of 2 (want double to be an octave)
     double semitoneMultiplier = powf(2.0, abs(semitones) / 12.0);
@@ -220,61 +236,63 @@ void SoundFile::changePitch(SampleList& inplaceData,
         double new_index = i * semitoneMultiplier;
 
         if (new_index < size) {
-            complexData2[(uint32_t)new_index] = complexData[i];
+            complexModifiedData[(uint32_t)new_index] = complexData[i];
         }
     }
 
     fftw_plan c2r_plan = fftw_plan_dft_c2r_1d(
         complexData.size(),
-        reinterpret_cast<fftw_complex*>(complexData2.data()),
-        inplaceData.data(), FFTW_ESTIMATE);
+        reinterpret_cast<fftw_complex*>(complexModifiedData.data()),
+        channelBackup.data(), FFTW_ESTIMATE);
     fftw_execute(c2r_plan);
 
     fftw_destroy_plan(plan);
     fftw_destroy_plan(c2r_plan);
 
-    for (auto& value : inplaceData) {
-        value /= inplaceData.size();
+    for (auto& value : channelBackup) {
+        value /= channelBackup.size();
+    }
+
+    for (size_t i = 0; i < endOffset - startOffset; i++) {
+        inplaceData[i + startOffset] = channelBackup[i];
     }
 }
 
 void SoundFile::addSwingFourier(const double bpm, double offset) {
     // Modify Pitch
+    double beat_length;
+    beat_length = 60 / bpm;
+
+    if (offset > 0) {
+        offset = std::fmod(offset, beat_length) - beat_length;
+    }
+
     for (size_t channel_index = 0; channel_index < _sndinfo.channels;
          channel_index++) {
         SampleList channelData = this->getChannel(channel_index);
-        SampleList pitched = getPitched(channelData, 1.0);
 
-        this->setChannel(channel_index, 0, pitched);
+        uint32_t beat = 0;
 
-        // double beat_length;
+        // Trackers in seconds
+        double tracker_l = offset;
 
-        // beat_length = 60 / bpm;
+        int32_t left_frame = -1;
+        int32_t right_frame = -1;
 
-        // if (offset > 0) {
-        //     offset = std::fmod(offset, beat_length) - beat_length;
-        // }
+        const auto length = this->getSoundLength();
+        while (tracker_l < length) {
+            // Get frame counter
+            left_frame = tracker_l * _sndinfo.samplerate;
+            right_frame =
+                (tracker_l + beat_length) * (double)_sndinfo.samplerate;
 
-        // uint32_t beat = 0;
+            makeSwung(channelData, left_frame, right_frame);
 
-        //// Trackers in seconds
-        // double tracker_l = offset;
+            // Update tracker
+            tracker_l = offset + beat_length * ++beat;
+        }
 
-        // int32_t left_frame = -1;
-        // int32_t right_frame = -1;
-
-        // const auto length = this->getSoundLength();
-        // while (tracker_l < length) {
-        //     // Get frame counter
-        //     left_frame = tracker_l * _sndinfo.samplerate;
-        //     right_frame =
-        //         (tracker_l + beat_length) * (double)_sndinfo.samplerate;
-
-        //    swingFrames(left_frame, right_frame);
-
-        //    // Update tracker
-        //    tracker_l = offset + beat_length * ++beat;
-        //}
+        this->setChannel(channel_index, 0, channelData);
     }
 };
 
@@ -349,4 +367,59 @@ void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
     }
 
     return;
+}
+
+void SoundFile::makeSwung(SampleList& samples, uint32_t leftFrame,
+                          uint32_t rightFrame) const {
+    const size_t frame_count = rightFrame - leftFrame;
+    if (leftFrame > rightFrame) {
+        throw std::logic_error("Right frame is above left frame.");
+    }
+
+    if (leftFrame >= samples.size() || rightFrame >= samples.size()) {
+        return;
+        // TODO: ACCOUNT FOR FINAL FRAME AND DONT JUST RETURN
+        // throw std::range_error("Left or right frame is out of bounds.");
+    }
+
+    auto semitonesUp = 12 * log2(2 * SWING_RATIO);
+    auto semitonesDown = 12 * log2(2 * (1 - SWING_RATIO));
+
+    // Perform pitch changes
+    size_t end = rightFrame;
+    size_t middle = (frame_count / 2) + leftFrame;
+    changePitch(samples, semitonesUp, leftFrame, middle);
+    changePitch(samples, semitonesDown, middle + 1, rightFrame);
+
+    std::vector<double> splice(frame_count);
+    splice[0] = samples[0];
+    splice[splice.size() - 1] = samples[splice.size() - 1];
+
+    for (size_t frame_index = 1; frame_index < frame_count - 1; frame_index++) {
+        double pos = (double)frame_index / (double)(frame_count - 1);
+
+        // Normalised pos
+        double transposed_pos;
+        if (pos <= SWING_RATIO) {
+            transposed_pos = pos / SWING_RATIO * 0.5;
+        } else {
+            transposed_pos = (pos - SWING_RATIO) / (2 * (1 - SWING_RATIO));
+            transposed_pos += 0.5;
+        }
+
+        // suppose relevantframe = 3.4, then we want 60% of 3 and 40% of 4
+        double weight_r = fmod(transposed_pos, 1.0);
+        double weight_l = 1 - weight_r;
+
+        int64_t leftSample = transposed_pos * frame_count + leftFrame;
+
+        double val = (weight_l * samples[leftSample]) +
+                     (weight_r * samples[leftSample + 1]);
+
+        splice[frame_index] = val;
+    }
+
+    for (size_t i = 0; i < splice.size(); i++) {
+        samples[leftFrame + i] = splice[i];
+    }
 }
