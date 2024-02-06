@@ -5,6 +5,7 @@
 #include <iostream>
 
 #define SWING_RATIO (2.0 / 3.0)
+#define PITCH_WINDOW (44100)
 
 namespace fs = std::filesystem;
 
@@ -176,8 +177,26 @@ SampleList SoundFile::getChannel(uint8_t channel) const {
 
 SampleList SoundFile::getPitched(const SampleList& channelData,
                                  const double semitones) const {
-    SampleList channelBackup = channelData;
-    std::vector<std::complex<SampleType>> complexData(channelData.size());
+    SampleList outputList(channelData.size());
+
+    for (size_t i = 0; i < channelData.size(); i += PITCH_WINDOW) {
+        auto chunk = SampleList(
+            channelData.begin() + 1 + i,
+            channelData.begin() +
+                std::clamp(i + PITCH_WINDOW, (size_t)0, channelData.size()));
+        changePitch(chunk, semitones);
+        for (size_t j = 0; j < chunk.size(); j++) {
+            outputList[i + j] = chunk[j];
+        }
+    }
+
+    return outputList;
+}
+
+void SoundFile::changePitch(SampleList& inplaceData,
+                            const double& semitones) const {
+    SampleList channelBackup = inplaceData;
+    std::vector<std::complex<SampleType>> complexData(inplaceData.size());
 
     fftw_plan plan = fftw_plan_dft_r2c_1d(
         complexData.size(), channelBackup.data(),
@@ -205,32 +224,57 @@ SampleList SoundFile::getPitched(const SampleList& channelData,
         }
     }
 
-    SampleList outputList(channelData.size());
-
     fftw_plan c2r_plan = fftw_plan_dft_c2r_1d(
         complexData.size(),
-        reinterpret_cast<fftw_complex*>(complexData2.data()), outputList.data(),
-        FFTW_ESTIMATE);
+        reinterpret_cast<fftw_complex*>(complexData2.data()),
+        inplaceData.data(), FFTW_ESTIMATE);
     fftw_execute(c2r_plan);
 
     fftw_destroy_plan(plan);
     fftw_destroy_plan(c2r_plan);
 
-    for (auto& value : outputList) {
-        value /= outputList.size();
+    for (auto& value : inplaceData) {
+        value /= inplaceData.size();
     }
-
-    return outputList;
 }
 
 void SoundFile::addSwingFourier(const double bpm, double offset) {
-    for (size_t i = 0; i < _sndinfo.channels; i++) {
-        SampleList channelData = this->getChannel(i);
-        channelData.resize(channelData.size() / 16);
+    // Modify Pitch
+    for (size_t channel_index = 0; channel_index < _sndinfo.channels;
+         channel_index++) {
+        SampleList channelData = this->getChannel(channel_index);
+        SampleList pitched = getPitched(channelData, 1.0);
 
-        auto pitched = getPitched(channelData, 1.0);
+        this->setChannel(channel_index, 0, pitched);
 
-        this->setChannel(i, 0, pitched);
+        // double beat_length;
+
+        // beat_length = 60 / bpm;
+
+        // if (offset > 0) {
+        //     offset = std::fmod(offset, beat_length) - beat_length;
+        // }
+
+        // uint32_t beat = 0;
+
+        //// Trackers in seconds
+        // double tracker_l = offset;
+
+        // int32_t left_frame = -1;
+        // int32_t right_frame = -1;
+
+        // const auto length = this->getSoundLength();
+        // while (tracker_l < length) {
+        //     // Get frame counter
+        //     left_frame = tracker_l * _sndinfo.samplerate;
+        //     right_frame =
+        //         (tracker_l + beat_length) * (double)_sndinfo.samplerate;
+
+        //    swingFrames(left_frame, right_frame);
+
+        //    // Update tracker
+        //    tracker_l = offset + beat_length * ++beat;
+        //}
     }
 };
 

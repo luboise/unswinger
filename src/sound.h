@@ -32,6 +32,8 @@ class SoundFile {
 
     SampleList getPitched(const std::vector<double>& channelData,
                                    const double semitones) const;
+    void changePitch(SampleList& inplaceData,
+                                 const double& semitones) const;
 
     void setSamples(const std::vector<double> frames);
     void setChannel(const size_t channel, const size_t offset, const std::vector<double> samples);

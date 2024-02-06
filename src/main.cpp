@@ -43,8 +43,9 @@ int main(int argc, char* argv[]) {
 
     file.addSwingFourier(songBPM, offset);
 
-    auto outpath = fs::path("out").replace_extension(fs::path(inpath).extension());
-   
+    auto outpath =
+        fs::path("out").replace_extension(fs::path(inpath).extension());
+
     file.exportToFile(outpath.string());
 
     return EXIT_SUCCESS;
