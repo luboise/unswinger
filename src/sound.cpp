@@ -100,13 +100,12 @@ inline double SoundFile::getSoundLength() const {
     return (double)_sndinfo.frames / _sndinfo.samplerate;
 }
 
-std::vector<double> SoundFile::getStretched(double stretchFactor) const {
+SampleList SoundFile::getStretched(double stretchFactor) const {
     return getStretched(stretchFactor, 0, _sndinfo.frames - 1);
 }
 
-std::vector<double> SoundFile::getStretched(double stretchFactor,
-                                            int32_t startFrame,
-                                            int32_t endFrame) const {
+SampleList SoundFile::getStretched(double stretchFactor, int32_t startFrame,
+                                   int32_t endFrame) const {
     const int32_t startSample = startFrame * _sndinfo.channels;
 
     const int32_t frame_count = endFrame - startFrame;
@@ -114,7 +113,7 @@ std::vector<double> SoundFile::getStretched(double stretchFactor,
 
     int32_t out_frames = floor(frame_count / stretchFactor);
 
-    std::vector<double> stretched(out_frames * _sndinfo.channels);
+    SampleList stretched(out_frames * _sndinfo.channels);
 
     uint32_t current_sample = 0;
     for (int frame = 0; frame < out_frames; frame++) {
@@ -141,8 +140,8 @@ std::vector<double> SoundFile::getStretched(double stretchFactor,
     return stretched;
 }
 
-std::vector<double> SoundFile::getFrame(const int32_t frameIndex) const {
-    std::vector<double> frame(_sndinfo.channels);
+std::vector<SampleType> SoundFile::getFrame(const int32_t frameIndex) const {
+    std::vector<SampleType> frame(_sndinfo.channels);
 
     auto startSample = frameIndex * _sndinfo.channels;
     for (size_t i = 0; i < _sndinfo.channels; i++) {
@@ -151,12 +150,12 @@ std::vector<double> SoundFile::getFrame(const int32_t frameIndex) const {
 
     return frame;
 }
-void SoundFile::setSamples(const std::vector<double> samples) {
+void SoundFile::setSamples(const SampleList samples) {
     this->_samples = samples;
     this->_sndinfo.frames = ceilf((double)samples.size() / _sndinfo.channels);
 }
 void SoundFile::setChannel(const size_t channel, const size_t offset,
-                           const std::vector<double> samples) {
+                           const SampleList samples) {
     size_t index;
     for (size_t i = 0; i < samples.size(); i++) {
         index = (offset + i) * _sndinfo.channels + channel;
@@ -164,51 +163,75 @@ void SoundFile::setChannel(const size_t channel, const size_t offset,
     }
 }
 
-std::vector<double> SoundFile::getSamples() const { return this->_samples; }
+SampleList SoundFile::getSamples() const { return this->_samples; }
 
-std::vector<double> SoundFile::getChannel(uint8_t channel) const {
-    std::vector<double> channel_data(_sndinfo.frames);
+SampleList SoundFile::getChannel(uint8_t channel) const {
+    SampleList channel_data(_sndinfo.frames);
     for (size_t i = 0; i < _sndinfo.frames; i++) {
         channel_data[i] = _samples[i * _sndinfo.channels + channel];
     }
 
     return channel_data;
 }
-void SoundFile::addSwingFourier(const double bpm, double offset) {
-    auto channel1 = this->getChannel(0);
-     channel1.resize(2646000 / 12);
-    auto channel3 = channel1;
-    //std::vector<std::complex<double>> complexInput(channel1.size());
-    //for (size_t i = 0; i < channel1.size(); ++i) {
-    //    complexInput[i] = std::complex<double>(channel1[i], 0.0);
-    //}
 
-    std::vector<std::complex<double>> complexData(channel1.size());
+SampleList SoundFile::getPitched(const SampleList& channelData,
+                                 const double semitones) const {
+    SampleList channelBackup = channelData;
+    std::vector<std::complex<SampleType>> complexData(channelData.size());
 
-    // Create FFTW plan for each channel
-    fftw_plan plan =
-        fftw_plan_dft_r2c_1d(complexData.size(),
-                         channel3.data(),
-                         reinterpret_cast<fftw_complex*>(complexData.data()),
-                         FFTW_ESTIMATE);
+    fftw_plan plan = fftw_plan_dft_r2c_1d(
+        complexData.size(), channelBackup.data(),
+        reinterpret_cast<fftw_complex*>(complexData.data()), FFTW_ESTIMATE);
     fftw_execute(plan);
 
-    // Create FFTW plan for each channel
+    double binSize = (double)_sndinfo.samplerate / channelBackup.size();
+
+    // New array to copy into
+    std::vector<std::complex<double>> complexData2(complexData.size());
+
+    // Multiplier = a 12th of 2 (want double to be an octave)
+    double semitoneMultiplier = powf(2.0, abs(semitones) / 12.0);
+    if (semitones < 0.0) {
+        semitoneMultiplier = 1 / semitoneMultiplier;
+    }
+
+    // Shift everything up by one semitone
+    const size_t size = complexData.size();
+    for (size_t i = 1; i < size; i++) {
+        double new_index = i * semitoneMultiplier;
+
+        if (new_index < size) {
+            complexData2[(uint32_t)new_index] = complexData[i];
+        }
+    }
+
+    SampleList outputList(channelData.size());
+
     fftw_plan c2r_plan = fftw_plan_dft_c2r_1d(
         complexData.size(),
-        reinterpret_cast<fftw_complex*>(complexData.data()), channel1.data(),
+        reinterpret_cast<fftw_complex*>(complexData2.data()), outputList.data(),
         FFTW_ESTIMATE);
     fftw_execute(c2r_plan);
 
     fftw_destroy_plan(plan);
     fftw_destroy_plan(c2r_plan);
 
-    for (auto& value : channel1) {
-        value /= channel1.size();
+    for (auto& value : outputList) {
+        value /= outputList.size();
     }
 
-    this->setChannel(0, 0, channel1);
-    this->setChannel(1, 0, channel1);
+    return outputList;
+}
+
+void SoundFile::addSwingFourier(const double bpm, double offset) {
+    for (size_t i = 0; i < _sndinfo.channels; i++) {
+        SampleList channelData = this->getChannel(i);
+        channelData.resize(channelData.size() / 16);
+
+        auto pitched = getPitched(channelData, 1.0);
+
+        this->setChannel(i, 0, pitched);
+    }
 };
 
 void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {

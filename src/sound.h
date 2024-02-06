@@ -7,6 +7,9 @@
 
 #include <fftw3.h>
 
+typedef double SampleType;
+typedef std::vector<SampleType> SampleList;
+
 class SoundFile {
    public:
     SoundFile(const std::string& filepath);
@@ -20,18 +23,21 @@ class SoundFile {
     inline bool isValid() const;
     inline double getSoundLength() const;
 
-    std::vector<double> getStretched(double stretchFactor) const;
-    std::vector<double> getStretched(double stretchFactor, int32_t startFrame,
+    SampleList getStretched(double stretchFactor) const;
+    SampleList getStretched(double stretchFactor, int32_t startFrame,
                                      int32_t endFrame) const;
-    std::vector<double> getFrame(const int32_t frameIndex) const;
-    std::vector<double> getSamples() const;
-    std::vector<double> getChannel(uint8_t channel) const;
+    std::vector<SampleType> getFrame(const int32_t frameIndex) const;
+    SampleList getSamples() const;
+    SampleList getChannel(uint8_t channel) const;
+
+    SampleList getPitched(const std::vector<double>& channelData,
+                                   const double semitones) const;
 
     void setSamples(const std::vector<double> frames);
     void setChannel(const size_t channel, const size_t offset, const std::vector<double> samples);
 
    private:
-    std::vector<double> _samples;
+    SampleList _samples;
     SF_INFO _sndinfo;
 
     void swingFrames(const int32_t leftFrame, const int32_t rightFrame);

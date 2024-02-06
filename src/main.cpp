@@ -1,6 +1,9 @@
 #include <iostream>
 #include <string>
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
 #include <sound.h>
 
 #include <fftw3.h>
@@ -22,12 +25,12 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    std::string filepath;
+    std::string inpath;
     double songBPM;
     double offset;
 
     try {
-        filepath = argv[1];
+        inpath = argv[1];
         songBPM = std::stod(argv[2]);
         offset = std::stod(argv[3]);
     } catch (std::exception& e) {
@@ -36,11 +39,13 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    SoundFile file(filepath);
+    SoundFile file(inpath);
 
     file.addSwingFourier(songBPM, offset);
 
-    file.exportToFile("out.flac");
+    auto outpath = fs::path("out").replace_extension(fs::path(inpath).extension());
+   
+    file.exportToFile(outpath.string());
 
     return EXIT_SUCCESS;
 }
