@@ -42,6 +42,9 @@ int main(int argc, char* argv[]) {
     SoundFile file(inpath);
 
     file.addSwingFourier(songBPM, offset);
+    file.normalise();
+    //file.setChannel(0, 0, file.getPitched(file.getChannel(0), 5));
+    //file.setChannel(1, 0, file.getPitched(file.getChannel(1), 5));
 
     auto outpath =
         fs::path("out").replace_extension(fs::path(inpath).extension());

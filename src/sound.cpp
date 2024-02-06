@@ -5,7 +5,7 @@
 #include <iostream>
 
 #define SWING_RATIO (2.0 / 3.0)
-#define PITCH_WINDOW (44100)
+#define PITCH_WINDOW (44100 / 10)
 
 namespace fs = std::filesystem;
 
@@ -230,10 +230,16 @@ void SoundFile::changePitch(SampleList& inplaceData, const double& semitones,
         semitoneMultiplier = 1 / semitoneMultiplier;
     }
 
-    // Shift everything up by one semitone
+    uint32_t nyquistFrequency = _sndinfo.samplerate / 2;
+
+    // Shift everything up by wanted amount of semitones
     const size_t size = complexData.size();
     for (size_t i = 1; i < size; i++) {
         double new_index = i * semitoneMultiplier;
+        double frequency = new_index * binSize;
+        if (frequency >= nyquistFrequency) {
+            break;
+        }
 
         if (new_index < size) {
             complexModifiedData[(uint32_t)new_index] = complexData[i];
@@ -295,6 +301,24 @@ void SoundFile::addSwingFourier(const double bpm, double offset) {
         this->setChannel(channel_index, 0, channelData);
     }
 };
+
+void SoundFile::changeVolume(const double newVolume) {
+    for (auto& sample : _samples) {
+        sample *= newVolume;
+    }
+}
+
+void SoundFile::normalise() {
+    if (_samples.size() == 0) return;
+    double maxSample = abs(_samples[0]);
+    for (const auto& sample : _samples) {
+        auto newVal = abs(sample);
+        if (newVal > maxSample) maxSample = newVal;
+    }
+
+    double scalar = 1 / maxSample;
+    for (auto& sample : _samples) sample *= scalar;
+}
 
 void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
     const size_t frame_count = rightFrame - leftFrame;

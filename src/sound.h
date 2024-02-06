@@ -37,6 +37,9 @@ class SoundFile {
     void setChannel(const size_t channel, const size_t offset,
                     const std::vector<double> samples);
 
+    void changeVolume(const double newVolume);
+    void normalise();
+
    private:
     SampleList _samples;
     SF_INFO _sndinfo;
