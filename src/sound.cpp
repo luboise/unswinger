@@ -5,7 +5,7 @@
 #include <iostream>
 
 #define SWING_RATIO (2.0 / 3.0)
-#define PITCH_WINDOW (44100 / 10)
+#define PITCH_WINDOW (44100 / 2048)
 
 namespace fs = std::filesystem;
 
@@ -393,8 +393,8 @@ void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
     return;
 }
 
-void SoundFile::makeSwung(SampleList& samples, uint32_t leftFrame,
-                          uint32_t rightFrame) const {
+void SoundFile::makeSwung(SampleList& samples, int32_t leftFrame,
+                          int32_t rightFrame) const {
     const size_t frame_count = rightFrame - leftFrame;
     if (leftFrame > rightFrame) {
         throw std::logic_error("Right frame is above left frame.");
@@ -404,6 +404,11 @@ void SoundFile::makeSwung(SampleList& samples, uint32_t leftFrame,
         return;
         // TODO: ACCOUNT FOR FINAL FRAME AND DONT JUST RETURN
         // throw std::range_error("Left or right frame is out of bounds.");
+    }
+
+    if (leftFrame < 0 || rightFrame < 0) {
+        // TODO: ACCOUNT FOR FIRST FRAME AND DONT JUST RETURN
+        return;
     }
 
     auto semitonesUp = 12 * log2(2 * SWING_RATIO);

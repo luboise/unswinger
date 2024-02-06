@@ -45,8 +45,8 @@ class SoundFile {
     SF_INFO _sndinfo;
 
     void swingFrames(const int32_t leftFrame, const int32_t rightFrame);
-    void makeSwung(SampleList& samples, uint32_t leftFrame,
-                   uint32_t rightFrame) const;
+    void makeSwung(SampleList& samples, int32_t leftFrame,
+                   int32_t rightFrame) const;
 
     void changePitch(SampleList& inplaceData, const double& semitones) const;
     void changePitch(SampleList& inplaceData, const double& semitones,
