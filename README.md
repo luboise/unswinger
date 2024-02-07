@@ -6,10 +6,11 @@ Eg. ``[0, 1/2, 1] -> [0, 2/3, 1]``
 ## Program usage:
 
 ```shell
-./MusicUnswinger.exe [file] [BPM] [Offset]
+./MusicUnswinger.exe [File] [Swing] [BPM] [Offset]
 ```
 
-- **file**	- The song file you would like to be altered
+- **File**	- The song file you would like to be altered
+- **Swing** - Must be either ``add`` or ``remove``
 - **BPM**	- The BPM of the song
 - **Offset** - The offset of the start of the song (in seconds). For example, 1.5s denotes the main downbeat of the song being on 
 

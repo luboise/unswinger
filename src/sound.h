@@ -17,6 +17,8 @@ class SoundFile {
 
     void addSwing(const double bpm, double offset);
     void addSwingFourier(const double bpm, double offset);
+    void addSwingFourier(const double bpm, double offset,
+                         const bool removeSwing);
 
     void exportToFile(const std::string filename) const;
 
@@ -45,8 +47,13 @@ class SoundFile {
     SF_INFO _sndinfo;
 
     void swingFrames(const int32_t leftFrame, const int32_t rightFrame);
+    void swingFrames(const int32_t leftFrame, const int32_t rightFrame,
+                     bool removeSwing);
+
     void makeSwung(SampleList& samples, int32_t leftFrame,
                    int32_t rightFrame) const;
+    void makeSwung(SampleList& samples, int32_t leftFrame, int32_t rightFrame,
+                   const bool removeSwing) const;
 
     void changePitch(SampleList& inplaceData, const double& semitones) const;
     void changePitch(SampleList& inplaceData, const double& semitones,

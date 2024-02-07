@@ -265,6 +265,11 @@ void SoundFile::changePitch(SampleList& inplaceData, const double& semitones,
 }
 
 void SoundFile::addSwingFourier(const double bpm, double offset) {
+    addSwingFourier(bpm, offset, false);
+}
+
+void SoundFile::addSwingFourier(const double bpm, double offset,
+                                const bool removeSwing) {
     // Modify Pitch
     double beat_length;
     beat_length = 60 / bpm;
@@ -292,7 +297,7 @@ void SoundFile::addSwingFourier(const double bpm, double offset) {
             right_frame =
                 (tracker_l + beat_length) * (double)_sndinfo.samplerate;
 
-            makeSwung(channelData, left_frame, right_frame);
+            makeSwung(channelData, left_frame, right_frame, removeSwing);
 
             // Update tracker
             tracker_l = offset + beat_length * ++beat;
@@ -395,6 +400,11 @@ void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
 
 void SoundFile::makeSwung(SampleList& samples, int32_t leftFrame,
                           int32_t rightFrame) const {
+    makeSwung(samples, leftFrame, rightFrame, false);
+}
+
+void SoundFile::makeSwung(SampleList& samples, int32_t leftFrame,
+                          int32_t rightFrame, const bool removeSwing) const {
     const size_t frame_count = rightFrame - leftFrame;
     if (leftFrame > rightFrame) {
         throw std::logic_error("Right frame is above left frame.");
@@ -414,6 +424,13 @@ void SoundFile::makeSwung(SampleList& samples, int32_t leftFrame,
     auto semitonesUp = 12 * log2(2 * SWING_RATIO);
     auto semitonesDown = 12 * log2(2 * (1 - SWING_RATIO));
 
+    // Swap up and down if removing swing
+    if (removeSwing) {
+        auto temp = semitonesUp;
+        semitonesUp = semitonesDown;
+        semitonesDown = temp;
+    }
+
     // Perform pitch changes
     size_t end = rightFrame;
     size_t middle = (frame_count / 2) + leftFrame;
@@ -424,15 +441,17 @@ void SoundFile::makeSwung(SampleList& samples, int32_t leftFrame,
     splice[0] = samples[0];
     splice[splice.size() - 1] = samples[splice.size() - 1];
 
+    double usedRatio = (removeSwing) ? 1 - SWING_RATIO : SWING_RATIO;
+
     for (size_t frame_index = 1; frame_index < frame_count - 1; frame_index++) {
         double pos = (double)frame_index / (double)(frame_count - 1);
 
         // Normalised pos
         double transposed_pos;
-        if (pos <= SWING_RATIO) {
-            transposed_pos = pos / SWING_RATIO * 0.5;
+        if (pos <= usedRatio) {
+            transposed_pos = pos / usedRatio * 0.5;
         } else {
-            transposed_pos = (pos - SWING_RATIO) / (2 * (1 - SWING_RATIO));
+            transposed_pos = (pos - usedRatio) / (2 * (1 - usedRatio));
             transposed_pos += 0.5;
         }
 
