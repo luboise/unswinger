@@ -24,6 +24,10 @@ class SoundFile {
     void addSwingFourier(const double bpm, double offset,
                          const bool removeSwing);
 
+    void addSwingVocoded(const double bpm, double offset);
+    void addSwingVocoded(const double bpm, double offset,
+                         const bool removeSwing);
+
     void exportToFile(const std::string filename);
 
     inline bool isValid() const;

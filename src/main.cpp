@@ -64,10 +64,10 @@ int main(int argc, char* argv[]) {
               << file.getSampleCount() / file.getChannelCount()
               << " samples per channel)" << std::endl;
 
-    // file.addSwingFourier(songBPM, offset, removeSwing);
+    //file.addSwingVocoded(songBPM, offset, removeSwing);
 
-    file.setChannel(0, 0, file.getVocoded(file.getChannel(0), 4));
-    file.setChannel(1, 0, file.getVocoded(file.getChannel(1), 4));
+    for (size_t channel = 0; channel < file.getChannelCount(); channel++)
+        file.setChannel(channel, 0, file.getVocoded(file.getChannel(channel), 1.5));
 
     file.normalise();
 
