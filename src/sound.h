@@ -2,6 +2,7 @@
 
 #include <sndfile.h>
 #include <array>
+#include <complex>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,9 @@
 
 typedef double SampleType;
 typedef std::vector<SampleType> SampleList;
+
+typedef std::complex<SampleType> FFT_T;
+typedef std::vector<FFT_T> FFTBinList;
 
 class SoundFile {
    public:
@@ -32,15 +36,21 @@ class SoundFile {
     SampleList getSamples() const;
     SampleList getChannel(uint8_t channel) const;
 
-    SampleList getPitched(const std::vector<double>& channelData,
+    SampleList getPitched(const SampleList& channelData,
                           const double semitones) const;
 
-    void setSamples(const std::vector<double> frames);
+    size_t getChannelCount() const;
+    size_t getSampleCount() const;
+
+    void setSamples(const SampleList frames);
     void setChannel(const size_t channel, const size_t offset,
-                    const std::vector<double> samples);
+                    const SampleList samples);
 
     void changeVolume(const double newVolume);
     void normalise();
+
+    SampleList getVocoded(const SampleList& samples,
+                          const double semitones) const;
 
    private:
     SampleList _samples;
@@ -58,4 +68,15 @@ class SoundFile {
     void changePitch(SampleList& inplaceData, const double& semitones) const;
     void changePitch(SampleList& inplaceData, const double& semitones,
                      const size_t startOffset, const size_t endOffset) const;
+
+    static SampleList getHamming(const SampleList& samples);
+
+    std::vector<SampleList> getWindows(const SampleList& samples,
+                                       const size_t windowSize,
+                                       const double hopSize) const;
+
+    FFTBinList getFFT(const SampleList& samples) const;
+    FFTBinList getFFT(const SampleList& samples, size_t minimumSize) const;
+
+    SampleList getIFFT(const FFTBinList& complexData) const;
 };

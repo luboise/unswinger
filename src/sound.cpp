@@ -1,11 +1,19 @@
-#include "sound.h"
+﻿#include "sound.h"
+#include "utils.h"
+
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 #include <complex>
 #include <filesystem>
 #include <iostream>
 
 #define SWING_RATIO (2.0 / 3.0)
-#define PITCH_WINDOW (44100 / 2048)
+#define PITCH_WINDOW (4096)
+#define LANCZOS_WINDOW 3
+
+#define WINDOW_SIZE (2048)
+#define OVERLAP_RATIO (0.75)
 
 namespace fs = std::filesystem;
 
@@ -21,7 +29,7 @@ SoundFile::SoundFile(const std::string& filepath) {
     SNDFILE* snd = sf_open(filepath.c_str(), SFM_READ, &info);
     if (snd) {
         const uint32_t sample_count = info.frames * info.channels;
-        std::vector<double> samples(sample_count);
+        SampleList samples(sample_count);
 
         auto read_count = sf_readf_double(snd, samples.data(), info.frames);
         if (read_count != info.frames) {
@@ -141,8 +149,8 @@ SampleList SoundFile::getStretched(double stretchFactor, int32_t startFrame,
     return stretched;
 }
 
-std::vector<SampleType> SoundFile::getFrame(const int32_t frameIndex) const {
-    std::vector<SampleType> frame(_sndinfo.channels);
+SampleList SoundFile::getFrame(const int32_t frameIndex) const {
+    SampleList frame(_sndinfo.channels);
 
     auto startSample = frameIndex * _sndinfo.channels;
     for (size_t i = 0; i < _sndinfo.channels; i++) {
@@ -181,7 +189,7 @@ SampleList SoundFile::getPitched(const SampleList& channelData,
 
     for (size_t i = 0; i < channelData.size(); i += PITCH_WINDOW) {
         auto chunk = SampleList(
-            channelData.begin() + 1 + i,
+            channelData.begin() + i,
             channelData.begin() +
                 std::clamp(i + PITCH_WINDOW, (size_t)0, channelData.size()));
         changePitch(chunk, semitones);
@@ -193,9 +201,18 @@ SampleList SoundFile::getPitched(const SampleList& channelData,
     return outputList;
 }
 
+size_t SoundFile::getChannelCount() const { return _sndinfo.channels; }
+size_t SoundFile::getSampleCount() const { return _samples.size(); }
+
 void SoundFile::changePitch(SampleList& inplaceData,
                             const double& semitones) const {
     return changePitch(inplaceData, semitones, 0, inplaceData.size() - 1);
+}
+
+double lanczosWindow(double x, double a) {
+    if (std::abs(x) < 1e-8) return 1.0;
+    if (std::abs(x) >= a) return 0.0;
+    return std::sin(M_PI * x) * std::sin(M_PI * x / a) / (M_PI * M_PI * x * x);
 }
 
 void SoundFile::changePitch(SampleList& inplaceData, const double& semitones,
@@ -209,59 +226,248 @@ void SoundFile::changePitch(SampleList& inplaceData, const double& semitones,
         throw std::domain_error("Offsets are out of range of sample list.");
     }
 
-    SampleList channelBackup(inplaceData.begin() + 1 + startOffset,
-                             inplaceData.begin() + 1 + endOffset);
+    SampleList channelSlice(inplaceData.begin() + startOffset,
+                            inplaceData.begin() + 1 + endOffset);
 
-    std::vector<std::complex<SampleType>> complexData(channelBackup.size());
-
-    fftw_plan plan = fftw_plan_dft_r2c_1d(
-        complexData.size(), channelBackup.data(),
-        reinterpret_cast<fftw_complex*>(complexData.data()), FFTW_ESTIMATE);
-    fftw_execute(plan);
-
-    double binSize = (double)_sndinfo.samplerate / channelBackup.size();
-
-    // New array to copy into
-    std::vector<std::complex<double>> complexModifiedData(complexData.size());
+    auto complexData = getFFT(channelSlice, _sndinfo.samplerate / 4);
+    double binSize = (double)_sndinfo.samplerate / channelSlice.size();
 
     // Multiplier = a 12th of 2 (want double to be an octave)
-    double semitoneMultiplier = powf(2.0, abs(semitones) / 12.0);
-    if (semitones < 0.0) {
-        semitoneMultiplier = 1 / semitoneMultiplier;
-    }
+    double semitoneMultiplier = powf(2.0, semitones / 12.0);
 
     uint32_t nyquistFrequency = _sndinfo.samplerate / 2;
 
     // Shift everything up by wanted amount of semitones
     const size_t size = complexData.size();
-    for (size_t i = 1; i < size; i++) {
+
+    std::complex<double> complexSum;
+
+    for (size_t i = 0; i < size / 2; i++) {
+        complexSum = 0;
+        double old_frequency = i * binSize;
+        double old_index = i / semitoneMultiplier;
         double new_index = i * semitoneMultiplier;
-        double frequency = new_index * binSize;
+
+        double frequency = i * binSize;
         if (frequency >= nyquistFrequency) {
             break;
         }
 
-        if (new_index < size) {
-            complexModifiedData[(uint32_t)new_index] = complexData[i];
+        double highRatio = fmod(i, 1.0);
+        if (i < size) {
+            complexData[(uint32_t)new_index] +=
+                (1.0 - highRatio) * complexData[i];
+            complexData[(uint32_t)new_index + 1] += (highRatio)*complexData[i];
+        }
+
+        // for (size_t current_bin = (int32_t)i - LANCZOS_WINDOW + 1;
+        //      current_bin <= i + LANCZOS_WINDOW; ++current_bin) {
+        //     if (current_bin < 0 || current_bin > size / 2) continue;
+
+        //     double sincArg = current_bin - frequency / binSize;
+        //     double weight = lanczosWindow(sincArg, LANCZOS_WINDOW);
+        //     //*complexData[old_index].real();
+
+        //     complexSum += weight * complexData[current_bin];
+        // }
+        // complexModifiedData[i] = complexSum;
+    }
+
+    SampleList iFFTValues = getIFFT(complexData);
+
+    for (size_t i = 0; i < endOffset - startOffset; i++) {
+        inplaceData[i + startOffset] = iFFTValues[i];
+    }
+}
+
+SampleList SoundFile::getHamming(const SampleList& samples) {
+    SampleList hammingValues(samples.size());
+
+    // Magic numbers for deciding tradeoff
+    const double ALPHA = 0.54;
+    const double BETA = 0.46;
+
+    const size_t SIZE = samples.size();
+
+    for (size_t i = 0; i < SIZE; i++) {
+        double hammingValue =
+            ALPHA - BETA * std::cos(2 * M_PI * (double)i / (SIZE - 1));
+        hammingValues[i] = hammingValue * samples[i];
+    }
+
+    return hammingValues;
+}
+
+SampleList SoundFile::getVocoded(const SampleList& samples,
+                                 const double stretchFactor) const {
+    std::cout << "Beginning vocode." << std::endl;
+
+    double hopA = floor(WINDOW_SIZE * (1 - OVERLAP_RATIO));
+    //double stretchFactor = std::pow(2, semitones / 12.0);
+    double hopS = 1 / stretchFactor * hopA;
+
+    std::cout << "Creating windows of original signal." << std::endl;
+    // Get windows (each window is N samples)
+    std::vector<SampleList> windows = getWindows(samples, WINDOW_SIZE, hopA);
+    std::cout << "Created windows of original signal.\n" << std::endl;
+
+    std::cout << "Acquiring FFT data for all bins..." << std::endl;
+    // Get bin data for each window
+    auto windowBins = std::vector<FFTBinList>(windows.size());
+    for (size_t i = 0; i < windows.size(); i++) {
+        // std::cout << "Acquiring FFT data for bin " << i+1 << "...";
+        const auto& window = windows[i];
+        windowBins[i] = getFFT(window);
+    }
+    std::cout << "Acquired FFT bin data.\n" << std::endl;
+
+    double deltaTimeAnalysed = hopA / _sndinfo.samplerate;
+    double deltaTimeSynthesised = hopS / _sndinfo.samplerate;
+
+    std::vector<double> binPhasesAnalysed(WINDOW_SIZE);
+    std::vector<double> binPhasesSynthesised(WINDOW_SIZE);
+
+    std::cout << "Synthesising frame data..." << std::endl;
+
+    size_t frames = windows.size();
+    // For each window
+    for (size_t frame_index = 0; frame_index < frames; frame_index++) {
+        // std::cout << "Synthesising frame " << frame_index + 1 << "..."
+        //<< std::endl;
+        SampleList& frame = windows[frame_index];
+        FFTBinList& currentBins = windowBins[frame_index];
+
+        size_t currentBinSize = currentBins.size();
+
+        // For each bin within each window
+        for (size_t bin_index = 0; bin_index < currentBins.size();
+             bin_index++) {
+            FFT_T currentBin = currentBins[bin_index];
+
+            double binFrequency = ((double)bin_index * _sndinfo.samplerate) /
+                                  (currentBinSize - 1);
+
+            SampleType previousPhase = binPhasesAnalysed[bin_index];
+            SampleType currentPhase = std::arg(currentBin);
+
+            // Calculate deviation of current bin between now and last frame and
+            // wrap it to [-pi, pi]
+            double binFrequencyDeviation =
+                (currentPhase - previousPhase) /
+                (deltaTimeAnalysed);
+
+            double binTrueFrequency =
+                WrapAngle(binFrequencyDeviation - binFrequency) + binFrequency;
+
+            double synthesisedPhase = binPhasesSynthesised[bin_index] +
+                                      (deltaTimeSynthesised * binTrueFrequency);
+
+            double binMagnitude = std::abs(currentBin);
+
+            FFT_T synthesisedVal = std::polar(binMagnitude, synthesisedPhase);
+            currentBin = synthesisedVal;
+
+            // Cleanup
+            binPhasesAnalysed[bin_index] = currentPhase;
+            binPhasesSynthesised[bin_index] = synthesisedPhase;
+        }
+
+        windows[frame_index] = getHamming(getIFFT(currentBins));
+    }
+
+    std::cout << "Synthesised frame data.\n" << std::endl;
+
+    std::cout << "Reconstructing vocoded signal..." << std::endl;
+
+    SampleList returnSamples(ceil(samples.size() / stretchFactor));
+    // For each window
+    for (size_t window_index = 0; window_index < windows.size();
+         window_index++) {
+        auto& window = windows[window_index];
+        // Get window starting position in real array
+        uint32_t global_window_start = floor(window_index * hopS);
+
+        // Sum the window values to the return vector
+        for (size_t sample_index = 0; sample_index < window.size();
+             sample_index++) {
+            int32_t current_index = global_window_start + sample_index;
+            if (current_index < 0 || current_index >= returnSamples.size())
+                continue;
+
+            returnSamples[current_index] += window[sample_index];
+        }
+    }
+    std::cout << "Reconstructed vocoded signal. Vocoding finished.\n"
+              << std::endl;
+
+    return returnSamples;
+}
+
+std::vector<SampleList> SoundFile::getWindows(const SampleList& samples,
+                                              const size_t windowSize,
+                                              const double hopSize) const {
+    std::vector<SampleList> windows;
+    uint32_t l_index;
+    uint32_t r_index;
+
+    size_t window_index = 0;
+
+    const size_t size = samples.size();
+    while (true) {
+        l_index = window_index++ * hopSize;
+        r_index = l_index + windowSize;
+
+        if (r_index >= size) {
+            SampleList window(samples.begin() + l_index, samples.end());
+            windows.push_back(window);
+            break;
+        } else {
+            SampleList window(samples.begin() + l_index,
+                              samples.begin() + r_index);
+            windows.push_back(window);
         }
     }
 
+    return windows;
+}
+
+FFTBinList SoundFile::getFFT(const SampleList& samples) const {
+    // Call with no minimum
+    return getFFT(samples, 0);
+}
+
+FFTBinList SoundFile::getFFT(const SampleList& samples,
+                             size_t minimumSize) const {
+    size_t FFTSize = std::max(samples.size(), minimumSize);
+    FFTBinList complexData(FFTSize);
+
+    SampleList samplesCopy = samples;
+
+    fftw_plan plan = fftw_plan_dft_r2c_1d(
+        samples.size(), samplesCopy.data(),
+        reinterpret_cast<fftw_complex*>(complexData.data()), FFTW_ESTIMATE);
+    fftw_execute(plan);
+    fftw_destroy_plan(plan);
+
+    return complexData;
+}
+
+SampleList SoundFile::getIFFT(const FFTBinList& complexData) const {
+    SampleList samples(complexData.size());
+    auto complexDataCopy = complexData;
+
     fftw_plan c2r_plan = fftw_plan_dft_c2r_1d(
         complexData.size(),
-        reinterpret_cast<fftw_complex*>(complexModifiedData.data()),
-        channelBackup.data(), FFTW_ESTIMATE);
+        reinterpret_cast<fftw_complex*>(complexDataCopy.data()), samples.data(),
+        FFTW_ESTIMATE);
     fftw_execute(c2r_plan);
-
-    fftw_destroy_plan(plan);
     fftw_destroy_plan(c2r_plan);
 
-    for (auto& value : channelBackup) {
-        value /= channelBackup.size();
+    for (auto& value : samples) {
+        value /= samples.size();
     }
 
-    for (size_t i = 0; i < endOffset - startOffset; i++) {
-        inplaceData[i + startOffset] = channelBackup[i];
-    }
+    return samples;
 }
 
 void SoundFile::addSwingFourier(const double bpm, double offset) {

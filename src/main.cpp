@@ -49,12 +49,27 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
+    std::cout << "Loading file: " << inpath << std::endl;
     SoundFile file(inpath);
 
-    file.addSwingFourier(songBPM, offset, removeSwing);
+    if (!file.isValid()) {
+        std::cerr << "Unable to proceed." << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    std::cout << "Successful file load.\n"
+              << "Audio length: " << file.getSoundLength()
+              << "\nTotal sample count: " << file.getSampleCount()
+              << "\nChannels: " << file.getChannelCount() << " ("
+              << file.getSampleCount() / file.getChannelCount()
+              << " samples per channel)" << std::endl;
+
+    // file.addSwingFourier(songBPM, offset, removeSwing);
+
+    file.setChannel(0, 0, file.getVocoded(file.getChannel(0), 4));
+    file.setChannel(1, 0, file.getVocoded(file.getChannel(1), 4));
+
     file.normalise();
-    // file.setChannel(0, 0, file.getPitched(file.getChannel(0), 5));
-    // file.setChannel(1, 0, file.getPitched(file.getChannel(1), 5));
 
     auto inpathFS = fs::path(inpath);
 
