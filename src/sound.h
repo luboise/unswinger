@@ -24,7 +24,7 @@ class SoundFile {
     void addSwingFourier(const double bpm, double offset,
                          const bool removeSwing);
 
-    void exportToFile(const std::string filename) const;
+    void exportToFile(const std::string filename);
 
     inline bool isValid() const;
     inline double getSoundLength() const;
@@ -33,7 +33,7 @@ class SoundFile {
     SampleList getStretched(double stretchFactor, int32_t startFrame,
                             int32_t endFrame) const;
     std::vector<SampleType> getFrame(const int32_t frameIndex) const;
-    SampleList getSamples() const;
+    // SampleList getSamples() const;
     SampleList getChannel(uint8_t channel) const;
 
     SampleList getPitched(const SampleList& channelData,
@@ -53,12 +53,12 @@ class SoundFile {
                           const double semitones) const;
 
    private:
-    SampleList _samples;
+    std::vector<SampleList> _channels;
     SF_INFO _sndinfo;
 
-    void swingFrames(const int32_t leftFrame, const int32_t rightFrame);
-    void swingFrames(const int32_t leftFrame, const int32_t rightFrame,
-                     bool removeSwing);
+    // void swingFrames(const int32_t leftFrame, const int32_t rightFrame);
+    // void swingFrames(const int32_t leftFrame, const int32_t rightFrame,
+    // bool removeSwing);
 
     void makeSwung(SampleList& samples, int32_t leftFrame,
                    int32_t rightFrame) const;
@@ -79,4 +79,6 @@ class SoundFile {
     FFTBinList getFFT(const SampleList& samples, size_t minimumSize) const;
 
     SampleList getIFFT(const FFTBinList& complexData) const;
+
+    void resizeChannels();
 };

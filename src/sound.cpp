@@ -39,8 +39,14 @@ SoundFile::SoundFile(const std::string& filepath) {
             return;
         }
 
+        std::vector<SampleList> channels(info.channels);
+
+        for (size_t i = 0; i < samples.size(); i++) {
+            channels[i % info.channels].push_back(samples[i]);
+        }
+
         this->_sndinfo = info;
-        this->_samples = std::move(samples);
+        this->_channels = channels;
 
         sf_close(snd);
 
@@ -52,56 +58,63 @@ SoundFile::SoundFile(const std::string& filepath) {
 
 SoundFile::~SoundFile() {}
 
-inline bool SoundFile::isValid() const { return this->_samples.size() > 0; }
+inline bool SoundFile::isValid() const { return this->_channels.size() > 0; }
 
-void SoundFile::addSwing(const double bpm, double offset) {
-    double beat_length;
+// void SoundFile::addSwing(const double bpm, double offset) {
+//     double beat_length;
+//
+//     beat_length = 60 / bpm;
+//
+//     if (offset > 0) {
+//         offset = std::fmod(offset, beat_length) - beat_length;
+//     }
+//
+//     uint32_t beat = 0;
+//
+//     // Trackers in seconds
+//     double tracker_l = offset;
+//
+//     int32_t left_frame = -1;
+//     int32_t right_frame = -1;
+//
+//     const auto length = this->getSoundLength();
+//     while (tracker_l < length) {
+//         // Get frame counter
+//         left_frame = tracker_l * _sndinfo.samplerate;
+//         right_frame = (tracker_l + beat_length) *
+//         (double)_sndinfo.samplerate;
+//
+//         swingFrames(left_frame, right_frame);
+//
+//         // Update tracker
+//         tracker_l = offset + beat_length * ++beat;
+//     }
+// }
 
-    beat_length = 60 / bpm;
-
-    if (offset > 0) {
-        offset = std::fmod(offset, beat_length) - beat_length;
-    }
-
-    uint32_t beat = 0;
-
-    // Trackers in seconds
-    double tracker_l = offset;
-
-    int32_t left_frame = -1;
-    int32_t right_frame = -1;
-
-    const auto length = this->getSoundLength();
-    while (tracker_l < length) {
-        // Get frame counter
-        left_frame = tracker_l * _sndinfo.samplerate;
-        right_frame = (tracker_l + beat_length) * (double)_sndinfo.samplerate;
-
-        swingFrames(left_frame, right_frame);
-
-        // Update tracker
-        tracker_l = offset + beat_length * ++beat;
-    }
-}
-
-void SoundFile::exportToFile(const std::string filename) const {
+void SoundFile::exportToFile(const std::string filename) {
     if (!this->isValid()) {
         std::cerr << "Attempting to write invalid file. Skipping..."
                   << std::endl;
         return;
-    } else if (_samples.size() % _sndinfo.channels != 0 ||
-               _samples.size() / _sndinfo.channels != _sndinfo.frames) {
-        std::cerr << "Mismatch between number of samples and channel count. "
-                     "Unable to write file. Skipping..."
-                  << std::endl;
-        return;
+    }
+    
+    this->resizeChannels();
+
+    SampleList outSamples(this->getSampleCount());
+
+    size_t channel_count = _channels.size();
+
+    for (size_t i = 0; i < this->_channels[0].size(); i++) {
+        for (size_t j = 0; j < channel_count; j++) {
+            outSamples[i * channel_count + j] = _channels[j][i];
+        }
     }
 
     // Remove const binding from const function
     SF_INFO info = _sndinfo;
     SNDFILE* snd = sf_open(filename.c_str(), SFM_WRITE, &info);
 
-    sf_write_double(snd, _samples.data(), _samples.size());
+    sf_write_double(snd, outSamples.data(), outSamples.size());
     sf_close(snd);
 }
 
@@ -152,35 +165,35 @@ SampleList SoundFile::getStretched(double stretchFactor, int32_t startFrame,
 SampleList SoundFile::getFrame(const int32_t frameIndex) const {
     SampleList frame(_sndinfo.channels);
 
-    auto startSample = frameIndex * _sndinfo.channels;
     for (size_t i = 0; i < _sndinfo.channels; i++) {
-        frame[i] = _samples[startSample + i];
+        frame[i] = _channels[i][frameIndex];
     }
 
     return frame;
 }
-void SoundFile::setSamples(const SampleList samples) {
-    this->_samples = samples;
-    this->_sndinfo.frames = ceilf((double)samples.size() / _sndinfo.channels);
-}
+
 void SoundFile::setChannel(const size_t channel, const size_t offset,
                            const SampleList samples) {
+    _channels[channel] = samples;
+
+    /*if (samples.size() <= _channels[channel].size())
     size_t index;
     for (size_t i = 0; i < samples.size(); i++) {
         index = (offset + i) * _sndinfo.channels + channel;
-        _samples[index] = samples[i];
-    }
+        _channels[channel] = samples[i];
+    }*/
 }
 
-SampleList SoundFile::getSamples() const { return this->_samples; }
+// SampleList SoundFile::getSamples() const { return this->_samples; }
 
 SampleList SoundFile::getChannel(uint8_t channel) const {
-    SampleList channel_data(_sndinfo.frames);
-    for (size_t i = 0; i < _sndinfo.frames; i++) {
-        channel_data[i] = _samples[i * _sndinfo.channels + channel];
+    if (channel >= _channels.size()) {
+        std::cerr << "Attempted to get channel at invalid index " << channel
+                  << "." << std::endl;
+        return SampleList();
     }
 
-    return channel_data;
+    return _channels[channel];
 }
 
 SampleList SoundFile::getPitched(const SampleList& channelData,
@@ -202,7 +215,11 @@ SampleList SoundFile::getPitched(const SampleList& channelData,
 }
 
 size_t SoundFile::getChannelCount() const { return _sndinfo.channels; }
-size_t SoundFile::getSampleCount() const { return _samples.size(); }
+size_t SoundFile::getSampleCount() const {
+    if (_channels.size() == 0) return 0;
+    return _channels.size() * _channels[0].size();
+    ;
+}
 
 void SoundFile::changePitch(SampleList& inplaceData,
                             const double& semitones) const {
@@ -303,7 +320,7 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
     std::cout << "Beginning vocode." << std::endl;
 
     double hopA = floor(WINDOW_SIZE * (1 - OVERLAP_RATIO));
-    //double stretchFactor = std::pow(2, semitones / 12.0);
+    // double stretchFactor = std::pow(2, semitones / 12.0);
     double hopS = 1 / stretchFactor * hopA;
 
     std::cout << "Creating windows of original signal." << std::endl;
@@ -353,8 +370,7 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
             // Calculate deviation of current bin between now and last frame and
             // wrap it to [-pi, pi]
             double binFrequencyDeviation =
-                (currentPhase - previousPhase) /
-                (deltaTimeAnalysed);
+                (currentPhase - previousPhase) / (deltaTimeAnalysed);
 
             double binTrueFrequency =
                 WrapAngle(binFrequencyDeviation - binFrequency) + binFrequency;
@@ -470,6 +486,19 @@ SampleList SoundFile::getIFFT(const FFTBinList& complexData) const {
     return samples;
 }
 
+void SoundFile::resizeChannels() {
+    uint32_t maxSize = 0;
+    for (const auto& channel : _channels) {
+        if (channel.size() > maxSize) maxSize = channel.size();
+    }
+
+    for (auto& channel : _channels) {
+        if (channel.size() < maxSize) {
+            channel.resize(maxSize);
+        }
+    }
+}
+
 void SoundFile::addSwingFourier(const double bpm, double offset) {
     addSwingFourier(bpm, offset, false);
 }
@@ -514,95 +543,106 @@ void SoundFile::addSwingFourier(const double bpm, double offset,
 };
 
 void SoundFile::changeVolume(const double newVolume) {
-    for (auto& sample : _samples) {
-        sample *= newVolume;
+    for (auto& channel : _channels) {
+        for (auto& sample : channel) {
+            sample *= newVolume;
+        }
     }
 }
 
 void SoundFile::normalise() {
-    if (_samples.size() == 0) return;
-    double maxSample = abs(_samples[0]);
-    for (const auto& sample : _samples) {
-        auto newVal = abs(sample);
-        if (newVal > maxSample) maxSample = newVal;
+    if (_channels.size() == 0 || _channels[0].size() == 0) {
+        return;
+    }
+    double maxSample = abs(_channels[0][0]);
+    for (auto& channel : _channels) {
+        for (const auto& sample : channel) {
+            auto newVal = abs(sample);
+            if (newVal > maxSample) maxSample = newVal;
+        }
     }
 
     double scalar = 1 / maxSample;
-    for (auto& sample : _samples) sample *= scalar;
-}
-
-void SoundFile::swingFrames(const int32_t leftFrame, const int32_t rightFrame) {
-    const size_t frame_count = rightFrame - leftFrame;
-    const size_t sample_count = frame_count * _sndinfo.channels;
-    const size_t global_sample_count = _sndinfo.frames * _sndinfo.channels;
-
-    const int32_t leftSample = leftFrame * _sndinfo.channels;
-
-    std::vector<double> splice(sample_count);
-
-    for (size_t i = 0; i < sample_count; i++) {
-        auto index = leftSample + i;
-
-        if (index >= 0 && index < global_sample_count) {
-            splice[i] = _samples[index];
-        } else {
-            splice[i] = 0;
+    for (auto& channel : _channels) {
+        for (auto& sample : channel) {
+            sample *= scalar;
         }
     }
-
-    for (size_t current_channel = 0; current_channel < _sndinfo.channels;
-         current_channel++) {
-        for (size_t frame_index = 1; frame_index < frame_count - 1;
-             frame_index++) {
-            double pos = (double)frame_index / (double)(frame_count - 1);
-
-            // Normalised pos
-            double transposed_pos;
-            if (pos <= SWING_RATIO) {
-                transposed_pos = pos / SWING_RATIO * 0.5;
-            } else {
-                transposed_pos = (pos - SWING_RATIO) / (2 * (1 - SWING_RATIO));
-                transposed_pos += 0.5;
-            }
-
-            // suppose relevantframe = 3.4, then we want 60% of 3 and 40% of 4
-            double weight_r = fmod(transposed_pos, 1.0);
-            double weight_l = 1 - weight_r;
-
-            int64_t localFrame = transposed_pos * frame_count;
-            int64_t localSample =
-                localFrame * _sndinfo.channels + current_channel;
-
-            int64_t lsampleindex = leftSample + localSample;
-            int64_t rsampleindex = lsampleindex + _sndinfo.channels;
-
-            if (lsampleindex < 0 || lsampleindex >= global_sample_count ||
-                rsampleindex >= global_sample_count) {
-                continue;
-            }
-
-            double val = (weight_l * _samples[lsampleindex]) +
-                         (weight_r * _samples[rsampleindex]);
-
-            auto test = frame_index * _sndinfo.channels + current_channel;
-            splice[test] = val;
-        }
-    }
-
-    int32_t real_index;
-    for (size_t i = 0; i < sample_count; i++) {
-        real_index = leftSample + i;
-        if (real_index < 0)
-            continue;
-        else if (real_index >= global_sample_count)
-            break;
-
-        //_samples[real_index] = (splice[i] != -2.0) ? splice[i] : 0;
-        _samples[real_index] = splice[i];
-    }
-
-    return;
 }
+
+// void SoundFile::swingFrames(const int32_t leftFrame, const int32_t
+// rightFrame) {
+//     const size_t frame_count = rightFrame - leftFrame;
+//     const size_t sample_count = frame_count * _sndinfo.channels;
+//     const size_t global_sample_count = _sndinfo.frames * _sndinfo.channels;
+//
+//     const int32_t leftSample = leftFrame * _sndinfo.channels;
+//
+//     std::vector<double> splice(sample_count);
+//
+//     for (size_t i = 0; i < sample_count; i++) {
+//         auto index = leftSample + i;
+//
+//         if (index >= 0 && index < global_sample_count) {
+//             splice[i] = _samples[index];
+//         } else {
+//             splice[i] = 0;
+//         }
+//     }
+//
+//     for (size_t current_channel = 0; current_channel < _sndinfo.channels;
+//          current_channel++) {
+//         for (size_t frame_index = 1; frame_index < frame_count - 1;
+//              frame_index++) {
+//             double pos = (double)frame_index / (double)(frame_count - 1);
+//
+//             // Normalised pos
+//             double transposed_pos;
+//             if (pos <= SWING_RATIO) {
+//                 transposed_pos = pos / SWING_RATIO * 0.5;
+//             } else {
+//                 transposed_pos = (pos - SWING_RATIO) / (2 * (1 -
+//                 SWING_RATIO)); transposed_pos += 0.5;
+//             }
+//
+//             // suppose relevantframe = 3.4, then we want 60% of 3 and 40% of
+//             4 double weight_r = fmod(transposed_pos, 1.0); double weight_l =
+//             1 - weight_r;
+//
+//             int64_t localFrame = transposed_pos * frame_count;
+//             int64_t localSample =
+//                 localFrame * _sndinfo.channels + current_channel;
+//
+//             int64_t lsampleindex = leftSample + localSample;
+//             int64_t rsampleindex = lsampleindex + _sndinfo.channels;
+//
+//             if (lsampleindex < 0 || lsampleindex >= global_sample_count ||
+//                 rsampleindex >= global_sample_count) {
+//                 continue;
+//             }
+//
+//             double val = (weight_l * _samples[lsampleindex]) +
+//                          (weight_r * _samples[rsampleindex]);
+//
+//             auto test = frame_index * _sndinfo.channels + current_channel;
+//             splice[test] = val;
+//         }
+//     }
+//
+//     int32_t real_index;
+//     for (size_t i = 0; i < sample_count; i++) {
+//         real_index = leftSample + i;
+//         if (real_index < 0)
+//             continue;
+//         else if (real_index >= global_sample_count)
+//             break;
+//
+//         //_samples[real_index] = (splice[i] != -2.0) ? splice[i] : 0;
+//         _samples[real_index] = splice[i];
+//     }
+//
+//     return;
+// }
 
 void SoundFile::makeSwung(SampleList& samples, int32_t leftFrame,
                           int32_t rightFrame) const {
