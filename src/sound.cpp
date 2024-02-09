@@ -13,7 +13,7 @@
 #define LANCZOS_WINDOW 3
 
 #define WINDOW_SIZE (4096)
-#define OVERLAP_RATIO (0.25)
+#define OVERLAP_RATIO (0.55)
 
 namespace fs = std::filesystem;
 
@@ -559,83 +559,64 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
 
     double usedRatio = (removeSwing) ? 1 - SWING_RATIO : SWING_RATIO;
 
-    const double downMultiplier = 1 / (2 * usedRatio);
-    const double upMultiplier = 1 / (2 * (1 - usedRatio));
+    const double upMultiplier = (2 * (1 - usedRatio));
+    const double downMultiplier = (2 * usedRatio);
 
     for (size_t channel_index = 0; channel_index < _sndinfo.channels;
          channel_index++) {
         SampleList channelData = this->getChannel(channel_index);
 
-        uint32_t beat = 0;
+        SampleList spedData = getVocoded(channelData, 1 / upMultiplier);
+        SampleList slowedData = getVocoded(channelData, 1 / downMultiplier);
 
-        // Trackers in seconds
-        double tracker_l = offset;
+        SampleList newData(channelData.size());
 
-        int32_t left_sample = -1;
-        int32_t right_sample = -1;
+        for (size_t i = 0; i < channelData.size(); i++) {
+            // Get the current beat
+            double realTime = (double)i / _sndinfo.samplerate;
+            realTime -= offset;
+            double beats = realTime / beat_length;
 
-        const auto length = this->getSoundLength();
-        while (tracker_l < length) {
-            // Get frame counter
-            left_sample = tracker_l * _sndinfo.samplerate;
-            right_sample = (tracker_l + beat_length) * _sndinfo.samplerate - 1;
+            if (beats < 0) continue;
 
-            int32_t frame_size = right_sample - left_sample;
+            // Figure out where the start of that beat is and get the index
+            double downbeatRatio = (beats == 0) ? 0 : floor(beats) / beats;
 
-            // Find middle
-            int32_t middle_sample = floor(frame_size / 2.0);
+            double beatStartIndex = downbeatRatio * i;
+            double beatStartRatio = beatStartIndex / (channelData.size() - 1);
 
-            SampleList left(middle_sample);
-            SampleList right(frame_size - middle_sample);
+            // double new_beats = (progress + floor(beats));
 
-            for (size_t i = 0; i < left.size(); i++) {
-                int32_t data_index = left_sample + i;
-                bool out_of_bounds =
-                    (data_index < 0 || data_index >= channelData.size());
+            if (fmod(beats, 1.0) < (removeSwing) ? 0.5 : SWING_RATIO) {
+                double beatOffset = i - beatStartIndex;
 
-                left[i] = (out_of_bounds) ? 0 : channelData[data_index];
-            }
+                auto new_index = beatStartRatio * (spedData.size() - 1);
+                new_index += beatOffset;
 
-            for (size_t i = 0; i < right.size(); i++) {
-                int32_t data_index = left_sample + left.size() + i;
-                bool out_of_bounds =
-                    (data_index < 0 || data_index >= channelData.size());
+                double weight_r = fmod(new_index, 1.0);
+                double weight_l = 1 - weight_r;
+                newData[i] = weight_l * spedData[floor(new_index)] +
+                             weight_r * spedData[floor(new_index) + 1];
+            } else {
+                downbeatRatio = (floor(beats) + (1 - SWING_RATIO)) / beats;
+                beatStartIndex = downbeatRatio * i;
+                beatStartRatio = beatStartIndex / (channelData.size() - 1);
 
-                right[i] = (out_of_bounds) ? 0 : channelData[data_index];
-            }
+                double beatOffset = i - beatStartIndex;
 
-            // Stretch with vocoder
-            left = getVocoded(left, upMultiplier);
-            right = getVocoded(right, downMultiplier);
+                auto new_index = beatStartRatio * (slowedData.size() - 1);
+                new_index += beatOffset;
 
-            // Write back
-            for (size_t i = 0; i < floor(usedRatio * frame_size); i++) {
-                int32_t data_index = left_sample + i;
-                bool out_of_bounds =
-                    (data_index < 0 || data_index >= channelData.size());
-                if (!out_of_bounds) {
-                    channelData[left_sample + i] = left[i];
+                double weight_r = fmod(new_index, 1.0);
+                double weight_l = 1 - weight_r;
+                if (floor(new_index + 1) < slowedData.size()) {
+                    newData[i] = weight_l * slowedData[floor(new_index)] +
+                                 weight_r * slowedData[floor(new_index) + 1];
                 }
             }
-
-            for (size_t i = 0; i <= (1 - usedRatio) * frame_size; i++) {
-                int32_t data_index = right_sample - i;
-                int32_t local_index = right.size() - 1 - i;
-
-                bool out_of_bounds =
-                    (data_index < 0 || data_index >= channelData.size() ||
-                     local_index < 0);
-
-                if (!out_of_bounds) {
-                    channelData[data_index] = right[right.size() - 1 - i];
-                }
-            }
-
-            // Update tracker
-            tracker_l = offset + beat_length * ++beat;
         }
 
-        this->setChannel(channel_index, 0, channelData);
+        this->setChannel(channel_index, 0, newData);
     }
 }
 
