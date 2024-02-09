@@ -13,7 +13,8 @@
 #define LANCZOS_WINDOW 3
 
 #define WINDOW_SIZE (4096)
-#define OVERLAP_RATIO (0.55)
+#define OVERLAP_RATIO_FAST (0.25)
+#define OVERLAP_RATIO_SLOW (0.6)
 
 namespace fs = std::filesystem;
 
@@ -319,7 +320,9 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
                                  const double stretchFactor) const {
     // std::cout << "Beginning vocode." << std::endl;
 
-    double hopA = floor(WINDOW_SIZE * (1 - OVERLAP_RATIO));
+    double hopA =
+        floor(WINDOW_SIZE * (1 - (stretchFactor > 1) ? OVERLAP_RATIO_FAST
+                                                     : OVERLAP_RATIO_SLOW));
     double hopS = 1 / stretchFactor * hopA;
 
     // std::cout << "Creating windows of original signal." << std::endl;
@@ -580,14 +583,14 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
             if (beats < 0) continue;
 
             // Figure out where the start of that beat is and get the index
-            double downbeatRatio = (beats == 0) ? 0 : floor(beats) / beats;
+            double downbeatRatio = (beats == 0) ? 0 : (floor(beats) / beats);
 
             double beatStartIndex = downbeatRatio * i;
             double beatStartRatio = beatStartIndex / (channelData.size() - 1);
 
             // double new_beats = (progress + floor(beats));
 
-            if (fmod(beats, 1.0) < (removeSwing) ? 0.5 : SWING_RATIO) {
+            if (fmod(beats, 1.0) < ((removeSwing) ? 0.5 : usedRatio)) {
                 double beatOffset = i - beatStartIndex;
 
                 auto new_index = beatStartRatio * (spedData.size() - 1);
@@ -595,10 +598,15 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
 
                 double weight_r = fmod(new_index, 1.0);
                 double weight_l = 1 - weight_r;
-                newData[i] = weight_l * spedData[floor(new_index)] +
-                             weight_r * spedData[floor(new_index) + 1];
+                if (floor(new_index + 1) < spedData.size()) {
+                    newData[i] = weight_l * spedData[floor(new_index)] +
+                                 weight_r * spedData[floor(new_index) + 1];
+                }
+
             } else {
-                downbeatRatio = (floor(beats) + (1 - SWING_RATIO)) / beats;
+                downbeatRatio =
+                    (floor(beats) + ((removeSwing) ? (usedRatio) : 0.5)) /
+                    beats;
                 beatStartIndex = downbeatRatio * i;
                 beatStartRatio = beatStartIndex / (channelData.size() - 1);
 
