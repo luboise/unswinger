@@ -30,8 +30,8 @@ class SoundFile {
 
     void exportToFile(const std::string filename);
 
-    inline bool isValid() const;
-    inline double getSoundLength() const;
+    bool isValid() const;
+    double getSoundLength() const;
 
     SampleList getStretched(double stretchFactor) const;
     SampleList getStretched(double stretchFactor, int32_t startFrame,

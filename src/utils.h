@@ -5,9 +5,6 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-std::complex<double> SafeScaleComplex(const std::complex<double>& complex,
-                                      const double ratio);
-
 template <typename T>
 T WrapAngle(const T val) {
     T returnVal = fmod(val + M_PI, M_2_PI);
