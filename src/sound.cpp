@@ -13,9 +13,12 @@
 #define PITCH_WINDOW (4096)
 #define LANCZOS_WINDOW 3
 
-#define WINDOW_SIZE (4096)
+#define WINDOW_SIZE (4096 * 1.6)
 #define OVERLAP_RATIO_FAST (0.25)
-#define OVERLAP_RATIO_SLOW (0.6)
+#define OVERLAP_RATIO_SLOW (0.625)
+
+// Samples to crossfade for audio at 44100Hz (scaled for other sample rates)
+#define CROSSFADE_SAMPLES 100
 
 namespace fs = std::filesystem;
 
@@ -586,6 +589,9 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
     const double upMultiplier = 2 * usedRatio;
     const double downMultiplier = 2 * (1 - usedRatio);
 
+    uint16_t crossfade_amount =
+        CROSSFADE_SAMPLES * (_sndinfo.samplerate / 44100.0) + 0.5;
+
     for (size_t channel_index = 0; channel_index < _sndinfo.channels;
          channel_index++) {
         SampleList channelData = this->getChannel(channel_index);
@@ -620,6 +626,15 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
                     tracker = getIndex;
                     currentData = &leftData;
 
+                    /*for (size_t j = 1; j < crossfade_amount; j++) {
+                        double oldRatio = j / ((double)crossfade_amount - 1);
+                        double newRatio = 1 - oldRatio;
+
+                        newData[i - j] = oldRatio * newData[i - j] +
+                                         newRatio * (*currentData)[tracker - j];
+                    }*/
+                        
+
                     usingLeft = true;
                 }
             }
@@ -633,6 +648,14 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
                                       downMultiplier * _sndinfo.samplerate;
                     tracker = getIndex;
                     currentData = &rightData;
+
+                    /*for (size_t j = 1; j < crossfade_amount; j++) {
+                        double oldRatio = j / ((double)crossfade_amount - 1);
+                        double newRatio = 1 - oldRatio;
+
+                        newData[i - j] = oldRatio * newData[i - j] +
+                                         newRatio * (*currentData)[tracker - j];
+                    }*/
 
                     usingLeft = false;
                 }
