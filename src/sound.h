@@ -84,7 +84,7 @@ class SoundFile {
 
     SampleList getIFFT(const FFTBinList& complexData) const;
 
-    static double getNewBeatPosition(double beat, double ratio);
+    static double getNewBeatPosition(double beat, double ratio, bool removingSwing);
 
     void resizeChannels();
 };

@@ -8,6 +8,7 @@
 #include <complex>
 #include <filesystem>
 #include <iostream>
+#include <thread>
 
 #define SWING_RATIO (2.0 / 3.0)
 #define PITCH_WINDOW (4096)
@@ -496,17 +497,17 @@ SampleList SoundFile::getIFFT(const FFTBinList& complexData) const {
     return samples;
 }
 
-double SoundFile::getNewBeatPosition(double beat, double ratio) {
-    double length_change = 2.0 * ratio;
+double SoundFile::getNewBeatPosition(double beat, double ratio, bool removingSwing) {
+    double threshold = (removingSwing) ? ratio : 0.5;
 
     double subbeat = fmod(beat, 1.0);
 
-    if (subbeat < ratio) {
-        subbeat *= 2 * ratio;
+    if (subbeat < threshold) {
+        subbeat *= ratio / threshold;
     } else {
-        subbeat -= ratio;
-        subbeat *= 2 * (1 - ratio);
-        subbeat += ratio;
+        subbeat -= threshold;
+        subbeat *= (1 - ratio) / threshold;
+        subbeat += threshold;
     }
 
     return floor(beat) + subbeat;
@@ -586,11 +587,15 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
 
     double usedRatio = (removeSwing) ? 1 - SWING_RATIO : SWING_RATIO;
 
-    const double upMultiplier = 2 * usedRatio;
-    const double downMultiplier = 2 * (1 - usedRatio);
+    const double threshold = (removeSwing) ? usedRatio : 0.5;
+
+    const double upMultiplier = usedRatio / threshold;
+    const double downMultiplier = (1 - usedRatio) / threshold;
 
     uint16_t crossfade_amount =
         CROSSFADE_SAMPLES * (_sndinfo.samplerate / 44100.0) + 0.5;
+
+    
 
     for (size_t channel_index = 0; channel_index < _sndinfo.channels;
          channel_index++) {
@@ -616,23 +621,23 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
             double subbeat = fmod(current_beat, 1.0);
 
             // If left side
-            if (subbeat < usedRatio) {
+            if (subbeat < threshold) {
                 // If left side and not using left, fix it
                 if (!usingLeft) {
                     double scaledBeat =
-                        getNewBeatPosition(current_beat, usedRatio);
+                        getNewBeatPosition(current_beat, usedRatio, removeSwing);
                     double getIndex = (scaledBeat * beat_length) *
                                       upMultiplier * _sndinfo.samplerate;
                     tracker = getIndex;
                     currentData = &leftData;
 
-                    /*for (size_t j = 1; j < crossfade_amount; j++) {
+                    for (size_t j = 1; j < crossfade_amount; j++) {
                         double oldRatio = j / ((double)crossfade_amount - 1);
                         double newRatio = 1 - oldRatio;
 
                         newData[i - j] = oldRatio * newData[i - j] +
                                          newRatio * (*currentData)[tracker - j];
-                    }*/
+                    }
                         
 
                     usingLeft = true;
@@ -642,20 +647,20 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
             else {
                 // If right side and not using right, fix it
                 if (usingLeft) {
-                    double scaledBeat =
-                        getNewBeatPosition(current_beat, usedRatio);
+                    double scaledBeat = getNewBeatPosition(
+                        current_beat, usedRatio, removeSwing);
                     double getIndex = (scaledBeat * beat_length) *
                                       downMultiplier * _sndinfo.samplerate;
                     tracker = getIndex;
                     currentData = &rightData;
 
-                    /*for (size_t j = 1; j < crossfade_amount; j++) {
+                    for (size_t j = 1; j < crossfade_amount; j++) {
                         double oldRatio = j / ((double)crossfade_amount - 1);
                         double newRatio = 1 - oldRatio;
 
                         newData[i - j] = oldRatio * newData[i - j] +
                                          newRatio * (*currentData)[tracker - j];
-                    }*/
+                    }
 
                     usingLeft = false;
                 }
