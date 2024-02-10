@@ -317,14 +317,18 @@ SampleList SoundFile::getHamming(const SampleList& samples) {
     return hammingValues;
 }
 
+// Stretch factor is change in length
 SampleList SoundFile::getVocoded(const SampleList& samples,
                                  const double stretchFactor) const {
     // std::cout << "Beginning vocode." << std::endl;
 
+    double overlap_ratio =
+        (stretchFactor > 1) ? OVERLAP_RATIO_SLOW : OVERLAP_RATIO_FAST;
+
     double hopA =
-        floor(WINDOW_SIZE * (1 - (stretchFactor > 1) ? OVERLAP_RATIO_FAST
-                                                     : OVERLAP_RATIO_SLOW));
-    double hopS = 1 / stretchFactor * hopA;
+        // floor(WINDOW_SIZE * (1 - overlap_ratio));
+        WINDOW_SIZE * (1 - overlap_ratio);
+    double hopS = stretchFactor * hopA;
 
     // std::cout << "Creating windows of original signal." << std::endl;
     //  Get windows (each window is N samples)
@@ -398,7 +402,7 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
 
     // std::cout << "Reconstructing vocoded signal..." << std::endl;
 
-    SampleList returnSamples(ceil(samples.size() / stretchFactor));
+    SampleList returnSamples(ceil(samples.size() * stretchFactor));
     // For each window
     for (size_t window_index = 0; window_index < windows.size();
          window_index++) {
@@ -498,7 +502,7 @@ double SoundFile::getNewBeatPosition(double beat, double ratio) {
         subbeat *= 2 * ratio;
     } else {
         subbeat -= ratio;
-        subbeat *= (1 - ratio);
+        subbeat *= 2 * (1 - ratio);
         subbeat += ratio;
     }
 
@@ -579,17 +583,23 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
 
     double usedRatio = (removeSwing) ? 1 - SWING_RATIO : SWING_RATIO;
 
-    const double upMultiplier = (2 * (1 - usedRatio));
-    const double downMultiplier = (2 * usedRatio);
+    const double upMultiplier = 2 * usedRatio;
+    const double downMultiplier = 2 * (1 - usedRatio);
 
     for (size_t channel_index = 0; channel_index < _sndinfo.channels;
          channel_index++) {
         SampleList channelData = this->getChannel(channel_index);
 
-        SampleList spedData = getVocoded(channelData, 1 / upMultiplier);
-        SampleList slowedData = getVocoded(channelData, 1 / downMultiplier);
+        SampleList leftData = getVocoded(channelData, upMultiplier);
+        SampleList rightData = getVocoded(channelData, downMultiplier);
 
+        SampleList* currentData = &leftData;
+
+        int32_t tracker = -1;
         SampleList newData(channelData.size());
+
+        bool usingLeft = true;
+
         for (size_t i = 0; i < newData.size(); i++) {
             // Get the current beat
             double realTime = (double)i / _sndinfo.samplerate;
@@ -597,29 +607,41 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
             double current_beat = realTime / beat_length;
 
             int32_t beat_count = (int32_t)current_beat;
+            double subbeat = fmod(current_beat, 1.0);
 
-            double scaledBeat = getNewBeatPosition(current_beat, usedRatio);
-            double subbeat = fmod(scaledBeat, 1.0);
-
+            // If left side
             if (subbeat < usedRatio) {
-                // Convert beat to index of array
-                double getIndex = scaledBeat * 2 * usedRatio * beat_length *
-                                  _sndinfo.samplerate;
-                if (floor(getIndex + 1) < spedData.size()) {
-                    // newData[i] = weight_l * spedData[floor(new_index)] +
-                    //              weight_r * spedData[floor(new_index) + 1];
-                    newData[i] = spedData[getIndex];
-                }
+                // If left side and not using left, fix it
+                if (!usingLeft) {
+                    double scaledBeat =
+                        getNewBeatPosition(current_beat, usedRatio);
+                    double getIndex = (scaledBeat * beat_length) *
+                                      upMultiplier * _sndinfo.samplerate;
+                    tracker = getIndex;
+                    currentData = &leftData;
 
-            } else {
-                double getIndex = scaledBeat * 2 * (1 - usedRatio) *
-                                  beat_length * _sndinfo.samplerate;
-                if (floor(getIndex + 1) < slowedData.size()) {
-                    // newData[i] = weight_l * slowedData[floor(new_index)] +
-                    //              weight_r * slowedData[floor(new_index) + 1];
-                    newData[i] = slowedData[getIndex];
+                    usingLeft = true;
                 }
             }
+            // If right side
+            else {
+                // If right side and not using right, fix it
+                if (usingLeft) {
+                    double scaledBeat =
+                        getNewBeatPosition(current_beat, usedRatio);
+                    double getIndex = (scaledBeat * beat_length) *
+                                      downMultiplier * _sndinfo.samplerate;
+                    tracker = getIndex;
+                    currentData = &rightData;
+
+                    usingLeft = false;
+                }
+            }
+
+            if (tracker >= 0 && tracker < currentData->size()) {
+                newData[i] = (*currentData)[tracker];
+            }
+            tracker++;
         }
 
         this->setChannel(channel_index, 0, newData);
