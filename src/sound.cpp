@@ -489,6 +489,22 @@ SampleList SoundFile::getIFFT(const FFTBinList& complexData) const {
     return samples;
 }
 
+double SoundFile::getNewBeatPosition(double beat, double ratio) {
+    double length_change = 2.0 * ratio;
+
+    double subbeat = fmod(beat, 1.0);
+
+    if (subbeat < ratio) {
+        subbeat *= 2 * ratio;
+    } else {
+        subbeat -= ratio;
+        subbeat *= (1 - ratio);
+        subbeat += ratio;
+    }
+
+    return floor(beat) + subbeat;
+}
+
 void SoundFile::resizeChannels() {
     uint32_t maxSize = 0;
     for (const auto& channel : _channels) {
@@ -574,53 +590,34 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
         SampleList slowedData = getVocoded(channelData, 1 / downMultiplier);
 
         SampleList newData(channelData.size());
-
-        for (size_t i = 0; i < channelData.size(); i++) {
+        for (size_t i = 0; i < newData.size(); i++) {
             // Get the current beat
             double realTime = (double)i / _sndinfo.samplerate;
-            realTime -= offset;
-            double beats = realTime / beat_length;
+            realTime += offset;
+            double current_beat = realTime / beat_length;
 
-            if (beats < 0) continue;
+            int32_t beat_count = (int32_t)current_beat;
 
-            // Figure out where the start of that beat is and get the index
-            double downbeatRatio = (beats == 0) ? 0 : (floor(beats) / beats);
+            double scaledBeat = getNewBeatPosition(current_beat, usedRatio);
+            double subbeat = fmod(scaledBeat, 1.0);
 
-            double beatStartIndex = downbeatRatio * i;
-            double beatStartRatio = beatStartIndex / (channelData.size() - 1);
-
-            // double new_beats = (progress + floor(beats));
-
-            if (fmod(beats, 1.0) < ((removeSwing) ? 0.5 : usedRatio)) {
-                double beatOffset = i - beatStartIndex;
-
-                auto new_index = beatStartRatio * (spedData.size() - 1);
-                new_index += beatOffset;
-
-                double weight_r = fmod(new_index, 1.0);
-                double weight_l = 1 - weight_r;
-                if (floor(new_index + 1) < spedData.size()) {
-                    newData[i] = weight_l * spedData[floor(new_index)] +
-                                 weight_r * spedData[floor(new_index) + 1];
+            if (subbeat < usedRatio) {
+                // Convert beat to index of array
+                double getIndex = scaledBeat * 2 * usedRatio * beat_length *
+                                  _sndinfo.samplerate;
+                if (floor(getIndex + 1) < spedData.size()) {
+                    // newData[i] = weight_l * spedData[floor(new_index)] +
+                    //              weight_r * spedData[floor(new_index) + 1];
+                    newData[i] = spedData[getIndex];
                 }
 
             } else {
-                downbeatRatio =
-                    (floor(beats) + ((removeSwing) ? (usedRatio) : 0.5)) /
-                    beats;
-                beatStartIndex = downbeatRatio * i;
-                beatStartRatio = beatStartIndex / (channelData.size() - 1);
-
-                double beatOffset = i - beatStartIndex;
-
-                auto new_index = beatStartRatio * (slowedData.size() - 1);
-                new_index += beatOffset;
-
-                double weight_r = fmod(new_index, 1.0);
-                double weight_l = 1 - weight_r;
-                if (floor(new_index + 1) < slowedData.size()) {
-                    newData[i] = weight_l * slowedData[floor(new_index)] +
-                                 weight_r * slowedData[floor(new_index) + 1];
+                double getIndex = scaledBeat * 2 * (1 - usedRatio) *
+                                  beat_length * _sndinfo.samplerate;
+                if (floor(getIndex + 1) < slowedData.size()) {
+                    // newData[i] = weight_l * slowedData[floor(new_index)] +
+                    //              weight_r * slowedData[floor(new_index) + 1];
+                    newData[i] = slowedData[getIndex];
                 }
             }
         }
