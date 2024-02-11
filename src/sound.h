@@ -8,11 +8,7 @@
 
 #include <fftw3.h>
 
-typedef double SampleType;
-typedef std::vector<SampleType> SampleList;
-
-typedef std::complex<SampleType> FFT_T;
-typedef std::vector<FFT_T> FFTBinList;
+#include "types.h"
 
 class SoundFile {
    public:
@@ -79,14 +75,11 @@ class SoundFile {
                                        const size_t windowSize,
                                        const double hopSize) const;
 
-    std::vector<FFTBinList> getWindowBins(std::vector<SampleList> windows) const;
+    std::vector<FFTBinList> getWindowBins(
+        std::vector<SampleList> windows) const;
 
-    FFTBinList getFFT(const SampleList& samples) const;
-    FFTBinList getFFT(const SampleList& samples, size_t minimumSize) const;
-
-    SampleList getIFFT(const FFTBinList& complexData) const;
-
-    static double getNewBeatPosition(double beat, double ratio, bool removingSwing);
+    static double getNewBeatPosition(double beat, double ratio,
+                                     bool removingSwing);
 
     void resizeChannels();
 };
