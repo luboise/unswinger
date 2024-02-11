@@ -64,7 +64,7 @@ SoundFile::SoundFile(const std::string& filepath) {
 
 SoundFile::~SoundFile() {}
 
-inline bool SoundFile::isValid() const { return this->_channels.size() > 0; }
+bool SoundFile::isValid() const { return this->_channels.size() > 0; }
 
 // void SoundFile::addSwing(const double bpm, double offset) {
 //     double beat_length;
@@ -124,7 +124,7 @@ void SoundFile::exportToFile(const std::string filename) {
     sf_close(snd);
 }
 
-inline double SoundFile::getSoundLength() const {
+double SoundFile::getSoundLength() const {
     return (double)_sndinfo.frames / _sndinfo.samplerate;
 }
 
@@ -339,15 +339,7 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
     std::vector<SampleList> windows = getWindows(samples, WINDOW_SIZE, hopA);
     // std::cout << "Created windows of original signal.\n" << std::endl;
 
-    // std::cout << "Acquiring FFT data for all bins..." << std::endl;
-    //  Get bin data for each window
-    auto windowBins = std::vector<FFTBinList>(windows.size());
-    for (size_t i = 0; i < windows.size(); i++) {
-        // std::cout << "Acquiring FFT data for bin " << i+1 << "...";
-        const auto& window = windows[i];
-        windowBins[i] = getFFT(window);
-    }
-    // std::cout << "Acquired FFT bin data.\n" << std::endl;
+    std::vector<FFTBinList> windowBins = getWindowBins(windows);
 
     double deltaTimeAnalysed = hopA / _sndinfo.samplerate;
     double deltaTimeSynthesised = hopS / _sndinfo.samplerate;
@@ -458,6 +450,37 @@ std::vector<SampleList> SoundFile::getWindows(const SampleList& samples,
     return windows;
 }
 
+std::vector<FFTBinList> SoundFile::getWindowBins(
+    std::vector<SampleList> windows) const {
+
+    // Return variable
+    auto windowBinLists = std::vector<FFTBinList>(windows.size());
+    auto& firstWindow = windows[0];
+
+    // Create plan
+    SampleList samplesCopy(firstWindow.size());
+    FFTBinList bins(firstWindow.size());
+    fftw_plan plan = fftw_plan_dft_r2c_1d(
+        samplesCopy.size(), samplesCopy.data(),
+        reinterpret_cast<fftw_complex*>(bins.data()), FFTW_ESTIMATE);
+
+    // Create thread to execute each plan
+    for (size_t i = 0; i < windows.size() - 1; i++) {
+        auto in = reinterpret_cast<double*> (windows[i].data());
+
+        windowBinLists[i].resize(windows[i].size());
+        auto out = reinterpret_cast<fftw_complex*>(windowBinLists[i].data());
+
+        fftw_execute_dft_r2c(plan, in, out);
+    }
+
+    windowBinLists[windowBinLists.size() - 1] = getFFT(windows[windows.size() - 1]);
+
+    // Cleanup
+    fftw_destroy_plan(plan);
+    return windowBinLists;
+}
+
 FFTBinList SoundFile::getFFT(const SampleList& samples) const {
     // Call with no minimum
     return getFFT(samples, 0);
@@ -497,7 +520,8 @@ SampleList SoundFile::getIFFT(const FFTBinList& complexData) const {
     return samples;
 }
 
-double SoundFile::getNewBeatPosition(double beat, double ratio, bool removingSwing) {
+double SoundFile::getNewBeatPosition(double beat, double ratio,
+                                     bool removingSwing) {
     double threshold = (removingSwing) ? ratio : 0.5;
 
     double subbeat = fmod(beat, 1.0);
@@ -595,8 +619,6 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
     uint16_t crossfade_amount =
         CROSSFADE_SAMPLES * (_sndinfo.samplerate / 44100.0) + 0.5;
 
-    
-
     for (size_t channel_index = 0; channel_index < _sndinfo.channels;
          channel_index++) {
         SampleList channelData = this->getChannel(channel_index);
@@ -624,8 +646,8 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
             if (subbeat < threshold) {
                 // If left side and not using left, fix it
                 if (!usingLeft) {
-                    double scaledBeat =
-                        getNewBeatPosition(current_beat, usedRatio, removeSwing);
+                    double scaledBeat = getNewBeatPosition(
+                        current_beat, usedRatio, removeSwing);
                     double getIndex = (scaledBeat * beat_length) *
                                       upMultiplier * _sndinfo.samplerate;
                     tracker = getIndex;
@@ -638,7 +660,6 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
                         newData[i - j] = oldRatio * newData[i - j] +
                                          newRatio * (*currentData)[tracker - j];
                     }
-                        
 
                     usingLeft = true;
                 }

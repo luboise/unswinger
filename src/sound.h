@@ -79,6 +79,8 @@ class SoundFile {
                                        const size_t windowSize,
                                        const double hopSize) const;
 
+    std::vector<FFTBinList> getWindowBins(std::vector<SampleList> windows) const;
+
     FFTBinList getFFT(const SampleList& samples) const;
     FFTBinList getFFT(const SampleList& samples, size_t minimumSize) const;
 
