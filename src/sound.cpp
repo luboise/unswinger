@@ -19,11 +19,11 @@
 // #define OVERLAP_RATIO_FAST (0.25)
 // #define OVERLAP_RATIO_FAST (0.25)
 
-#define OVERLAP_RATIO_FAST (0.35)
+#define OVERLAP_RATIO_FAST (0.8)
 #define OVERLAP_RATIO_SLOW (0.6)
 
 // Samples to crossfade for audio at 44100Hz (scaled for other sample rates)
-#define CROSSFADE_SAMPLES 2
+#define CROSSFADE_SAMPLES 10
 
 namespace fs = std::filesystem;
 
@@ -123,6 +123,12 @@ void SoundFile::exportToFile(const std::string filename) {
     // Remove const binding from const function
     SF_INFO info = _sndinfo;
     SNDFILE* snd = sf_open(filename.c_str(), SFM_WRITE, &info);
+
+    if (snd == NULL) {
+        std::cerr << "Unable to open file \"" << filename << "\" for writing."
+                  << std::endl;
+        return;
+    }
 
     sf_write_double(snd, outSamples.data(), outSamples.size());
     sf_close(snd);
@@ -379,7 +385,10 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
                 deltaTimeSynthesised * binTrueFrequency;
 
             double synthesisedPhase =
-                previousSynthesisedValue + realPhase + introducedPhaseShift;
+                previousSynthesisedValue +
+                UnwrapAngle(realPhase + introducedPhaseShift);
+
+            // synthesisedPhase = UnwrapAngle(synthesisedPhase);
 
             FFT_T synthesisedVal =
                 std::complex(binMagnitude * std::cos(synthesisedPhase),
@@ -586,11 +595,11 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
          channel_index++) {
         SampleList channelData = this->getChannel(channel_index);
 
+        std::cout << "Acquiring vocoded values of channel " << channel_index + 1
+                  << std::endl;
+
         SampleList leftData = getVocoded(channelData, upMultiplier);
         SampleList rightData = getVocoded(channelData, downMultiplier);
-
-        this->setChannel(channel_index, 0, rightData);
-        continue;
 
         SampleList* currentData = &leftData;
 

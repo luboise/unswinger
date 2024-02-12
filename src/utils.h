@@ -12,3 +12,13 @@ T WrapAngle(const T val) {
 
     return returnVal;
 }
+
+template <typename T>
+T UnwrapAngle(const T val) {
+    T v = val;
+
+    while (v > M_PI) v -= 2 * M_PI;
+    while (v < -M_PI) v += 2 * M_PI;
+
+    return v;
+}
