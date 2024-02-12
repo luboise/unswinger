@@ -15,12 +15,15 @@
 #define PITCH_WINDOW (4096)
 #define LANCZOS_WINDOW 3
 
-#define WINDOW_SIZE (4096 * 1.6)
-#define OVERLAP_RATIO_FAST (0.25)
-#define OVERLAP_RATIO_SLOW (0.625)
+#define WINDOW_SIZE (1024 * 1.5)
+// #define OVERLAP_RATIO_FAST (0.25)
+// #define OVERLAP_RATIO_FAST (0.25)
+
+#define OVERLAP_RATIO_FAST (0.35)
+#define OVERLAP_RATIO_SLOW (0.6)
 
 // Samples to crossfade for audio at 44100Hz (scaled for other sample rates)
-#define CROSSFADE_SAMPLES 100
+#define CROSSFADE_SAMPLES 2
 
 namespace fs = std::filesystem;
 
@@ -357,33 +360,38 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
         // For each bin within each window
         for (size_t bin_index = 0; bin_index < currentBins.size();
              bin_index++) {
-            FFT_T currentBin = currentBins[bin_index];
+            double spectrumFrequency =
+                ((double)bin_index * _sndinfo.samplerate) /
+                (currentBinSize - 1);
 
-            double binFrequency = ((double)bin_index * _sndinfo.samplerate) /
-                                  (currentBinSize - 1);
+            FFT_T currentSpectrum = currentBins[bin_index];
+            double binMagnitude = std::abs(currentSpectrum);
 
-            SampleType previousPhase = binPhasesAnalysed[bin_index];
-            SampleType currentPhase = std::arg(currentBin);
+            // SampleType previousPhase = binPhasesAnalysed[bin_index];
 
-            // Calculate deviation of current bin between now and last frame and
-            // wrap it to [-pi, pi]
-            double binFrequencyDeviation =
-                (currentPhase - previousPhase) / (deltaTimeAnalysed);
+            SampleType realPhase = std::arg(currentSpectrum);
 
-            double binTrueFrequency =
-                WrapAngle(binFrequencyDeviation - binFrequency) + binFrequency;
+            double binTrueFrequency = spectrumFrequency / stretchFactor;
 
-            double synthesisedPhase = binPhasesSynthesised[bin_index] +
-                                      (deltaTimeSynthesised * binTrueFrequency);
+            double& previousSynthesisedValue = binPhasesSynthesised[bin_index];
 
-            double binMagnitude = std::abs(currentBin);
+            double introducedPhaseShift =
+                deltaTimeSynthesised * binTrueFrequency;
 
-            FFT_T synthesisedVal = std::polar(binMagnitude, synthesisedPhase);
-            currentBin = synthesisedVal;
+            double synthesisedPhase =
+                previousSynthesisedValue + realPhase + introducedPhaseShift;
+
+            FFT_T synthesisedVal =
+                std::complex(binMagnitude * std::cos(synthesisedPhase),
+                             binMagnitude * std::sin(synthesisedPhase));
+
+            // FFT_T synthesisedVal = std::polar(binMagnitude,
+            // synthesisedPhase);
+            currentBins[bin_index] = synthesisedVal;
 
             // Cleanup
-            binPhasesAnalysed[bin_index] = currentPhase;
-            binPhasesSynthesised[bin_index] = synthesisedPhase;
+            // binPhasesAnalysed[bin_index] = unwrappedPhase;
+            previousSynthesisedValue = synthesisedPhase;
         }
     }
 
@@ -412,8 +420,10 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
         for (size_t sample_index = 0; sample_index < window.size();
              sample_index++) {
             int32_t current_index = global_window_start + sample_index;
-            if (current_index < 0 || current_index >= returnSamples.size())
+            if (current_index < 0)
                 continue;
+            else if (current_index >= returnSamples.size())
+                break;
 
             returnSamples[current_index] += window[sample_index];
         }
@@ -578,6 +588,9 @@ void SoundFile::addSwingVocoded(const double bpm, double offset,
 
         SampleList leftData = getVocoded(channelData, upMultiplier);
         SampleList rightData = getVocoded(channelData, downMultiplier);
+
+        this->setChannel(channel_index, 0, rightData);
+        continue;
 
         SampleList* currentData = &leftData;
 

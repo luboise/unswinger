@@ -72,7 +72,7 @@ void IFFTPlan::resize(const size_t newSize) {
 void IFFTPlan::execute(FFTBinList& in, SampleList& out) const {
     if (in.size() < _details.planSize) {
         std::cerr
-            << "Attempted to execute FFT plan on samplelist that is too short. "
+            << "Attempted to execute IFFT plan on samplelist that is too short. "
                "Skipping."
             << std::endl;
         return;

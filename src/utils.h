@@ -7,7 +7,7 @@
 
 template <typename T>
 T WrapAngle(const T val) {
-    T returnVal = fmod(val + M_PI, M_2_PI);
+    T returnVal = fmod(val + M_PI, 2 * M_PI);
     returnVal -= M_PI;
 
     return returnVal;
