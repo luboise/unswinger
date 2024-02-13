@@ -10,6 +10,7 @@ namespace fs = std::filesystem;
 
 // ./unswinger filepath bpm offset
 #define NUM_USER_ARGS 4
+#define NUM_FFT_ARGS 3
 
 void printHelp(void) {
     std::cerr << "./unswinger filepath status bpm offset"
@@ -22,7 +23,7 @@ void printHelp(void) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != NUM_USER_ARGS + 1) {
+    if (argc != NUM_USER_ARGS + 1 && argc != NUM_USER_ARGS + NUM_FFT_ARGS + 1) {
         printHelp();
         return EXIT_FAILURE;
     }
@@ -35,6 +36,9 @@ int main(int argc, char* argv[]) {
     double songBPM;
     double offset;
 
+    bool userSpecifiedFft = (argc == NUM_USER_ARGS + NUM_FFT_ARGS + 1);
+    SoundFile::FFTParams fftParams;
+
     try {
         inpath = argv[1];
 
@@ -43,6 +47,13 @@ int main(int argc, char* argv[]) {
 
         songBPM = std::stod(argv[3]);
         offset = std::stod(argv[4]);
+
+        if (argc == NUM_USER_ARGS + NUM_FFT_ARGS + 1) {
+            fftParams.fftWindowSize = std::stoi(argv[NUM_USER_ARGS + 1]);
+            fftParams.overlayWhenFast = std::stod(argv[NUM_USER_ARGS + 2]);
+            fftParams.overlayWhenSlow = std::stod(argv[NUM_USER_ARGS + 3]);
+        }
+
     } catch (std::exception& e) {
         std::cerr << "Failed to process user arguments with error: \n"
                   << e.what() << std::endl;
@@ -51,6 +62,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Loading file: " << inpath << std::endl;
     SoundFile file(inpath);
+    if (userSpecifiedFft) file.setFftParams(fftParams);
 
     if (!file.isValid()) {
         std::cerr << "Unable to proceed." << std::endl;
@@ -70,8 +82,16 @@ int main(int argc, char* argv[]) {
 
     auto inpathFS = fs::path(inpath);
 
-    auto outpath = fs::path(inpathFS.stem().string() + "_swung" +
-                            inpathFS.extension().string());
+    std::string fileStem = inpathFS.stem().string() + "_swung";
+    if (userSpecifiedFft) {
+        std::stringstream ss;
+        ss << "_" << fftParams.fftWindowSize << "_" << fftParams.overlayWhenFast
+           << "_"
+           << fftParams.overlayWhenSlow;
+        fileStem += ss.str();
+    }
+
+    auto outpath = fs::path(fileStem + inpathFS.extension().string());
 
     file.exportToFile(outpath.string());
 

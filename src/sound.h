@@ -12,6 +12,12 @@
 
 class SoundFile {
    public:
+    struct FFTParams {
+        double overlayWhenFast = 0.55;
+        double overlayWhenSlow = 0.7;
+        uint16_t fftWindowSize = 2048;
+    };
+
     SoundFile(const std::string& filepath);
     ~SoundFile();
 
@@ -52,9 +58,13 @@ class SoundFile {
     SampleList getVocoded(const SampleList& samples,
                           const double semitones) const;
 
+    void setFftParams(const FFTParams& params);
+
    private:
     std::vector<SampleList> _channels;
     SF_INFO _sndinfo;
+
+    static FFTParams _fftParams;
 
     // void swingFrames(const int32_t leftFrame, const int32_t rightFrame);
     // void swingFrames(const int32_t leftFrame, const int32_t rightFrame,

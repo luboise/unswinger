@@ -15,17 +15,18 @@
 #define PITCH_WINDOW (4096)
 #define LANCZOS_WINDOW 3
 
-#define WINDOW_SIZE (1024 * 1.5)
-// #define OVERLAP_RATIO_FAST (0.25)
-// #define OVERLAP_RATIO_FAST (0.25)
+#define MIN_FFT_WINDOW_SIZE 512
+#define MAX_FFT_WINDOW_SIZE 4096
 
-#define OVERLAP_RATIO_FAST (0.8)
-#define OVERLAP_RATIO_SLOW (0.6)
+#define MIN_OVERLAP_RATIO 0.1
+#define MAX_OVERLAP_RATIO 0.95
 
 // Samples to crossfade for audio at 44100Hz (scaled for other sample rates)
 #define CROSSFADE_SAMPLES 10
 
 namespace fs = std::filesystem;
+
+SoundFile::FFTParams SoundFile::_fftParams;
 
 SoundFile::SoundFile(const std::string& filepath) {
     if (!fs::exists(filepath) || fs::is_directory(filepath)) {
@@ -341,20 +342,22 @@ SampleList SoundFile::getHamming(const SampleList& samples) {
 // Stretch factor is change in length
 SampleList SoundFile::getVocoded(const SampleList& samples,
                                  const double stretchFactor) const {
-    double overlap_ratio =
-        (stretchFactor > 1) ? OVERLAP_RATIO_SLOW : OVERLAP_RATIO_FAST;
+    double overlap_ratio = (stretchFactor > 1)
+                               ? SoundFile::_fftParams.overlayWhenSlow
+                               : SoundFile::_fftParams.overlayWhenFast;
 
-    double hopA = WINDOW_SIZE * (1 - overlap_ratio);
+    uint32_t window_size = SoundFile::_fftParams.fftWindowSize;
+    double hopA = window_size * (1 - overlap_ratio);
     double hopS = stretchFactor * hopA;
 
-    std::vector<SampleList> windows = getWindows(samples, WINDOW_SIZE, hopA);
+    std::vector<SampleList> windows = getWindows(samples, window_size, hopA);
     std::vector<FFTBinList> windowBins = getWindowBins(windows);
 
     double deltaTimeAnalysed = hopA / _sndinfo.samplerate;
     double deltaTimeSynthesised = hopS / _sndinfo.samplerate;
 
-    std::vector<double> binPhasesAnalysed(WINDOW_SIZE);
-    std::vector<double> binPhasesSynthesised(WINDOW_SIZE);
+    std::vector<double> binPhasesAnalysed(window_size);
+    std::vector<double> binPhasesSynthesised(window_size);
 
     size_t frames = windows.size();
     for (size_t frame_index = 0; frame_index < frames; frame_index++) {
@@ -404,7 +407,7 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
         }
     }
 
-    IFFTPlan inversePlan(WINDOW_SIZE);
+    IFFTPlan inversePlan(window_size);
     for (size_t i = 0; i < windowBins.size(); i++) {
         inversePlan.execute(windowBins[i], windows[i]);
         windows[i] = getHamming(windows[i]);
@@ -423,22 +426,50 @@ SampleList SoundFile::getVocoded(const SampleList& samples,
          window_index++) {
         auto& window = windows[window_index];
         // Get window starting position in real array
-        uint32_t global_window_start = floor(window_index * hopS);
+        // uint32_t global_window_start = floor(window_index * hopS);
+        double global_window_start = window_index * hopS;
 
         // Sum the window values to the return vector
         for (size_t sample_index = 0; sample_index < window.size();
              sample_index++) {
-            int32_t current_index = global_window_start + sample_index;
-            if (current_index < 0)
+            // int32_t current_index = global_window_start + sample_index;
+            double insertion_index = global_window_start + sample_index;
+
+            if (insertion_index < 0)
                 continue;
-            else if (current_index >= returnSamples.size())
+            else if (insertion_index >= returnSamples.size())
                 break;
 
-            returnSamples[current_index] += window[sample_index];
+            double weight_r = fmod(insertion_index, 1.0);
+            double weight_l = 1 - weight_r;
+
+            returnSamples[floor(insertion_index)] +=
+                weight_l * window[sample_index];
+            returnSamples[floor(insertion_index) + 1] +=
+                weight_r * window[sample_index];
+
+            // returnSamples[current_index] += window[sample_index];
         }
     }
 
     return returnSamples;
+}
+
+void SoundFile::setFftParams(const FFTParams& params) {
+    if (params.fftWindowSize >= MIN_FFT_WINDOW_SIZE &&
+        params.fftWindowSize <= MAX_FFT_WINDOW_SIZE) {
+        _fftParams.fftWindowSize = params.fftWindowSize;
+    }
+
+    if (params.overlayWhenFast >= MIN_OVERLAP_RATIO &&
+        params.overlayWhenFast <= MAX_OVERLAP_RATIO) {
+        _fftParams.overlayWhenFast = params.overlayWhenFast;
+    }
+
+    if (params.overlayWhenSlow >= MIN_OVERLAP_RATIO &&
+        params.overlayWhenSlow <= MAX_OVERLAP_RATIO) {
+        _fftParams.overlayWhenSlow = params.overlayWhenSlow;
+    }
 }
 
 std::vector<SampleList> SoundFile::getWindows(const SampleList& samples,
